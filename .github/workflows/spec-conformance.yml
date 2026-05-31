@@ -7,10 +7,19 @@ name: spec-conformance
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  statuses: write
+
+concurrency:
+  group: spec-conformance-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   conformance:
@@ -23,8 +32,8 @@ jobs:
 
       # Pin the spec repo to the version this SDK declares. The
       # pom.xml carries <concordex.spec.version>0.5.0</…>. CI reads
-      # it back and uses it as the spec repo's git ref so drift
-      # surfaces as a checkout failure.
+      # it back and uses it for the spec repo's git ref so drift
+      # surfaces as a checkout failure on release branches.
       - name: Read pinned spec version
         id: spec
         run: |
@@ -32,19 +41,36 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Pinned spec version: $version"
 
+      - name: Resolve spec checkout ref
+        id: spec_ref
+        env:
+          VERSION: ${{ steps.spec.outputs.version }}
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/release/*|refs/tags/v*)
+              echo "ref=v${VERSION}" >> "$GITHUB_OUTPUT"
+              echo "mode=release"  >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "ref=main"      >> "$GITHUB_OUTPUT"
+              echo "mode=dev"      >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Check out concordex-sdk-spec
         uses: actions/checkout@v4
         with:
-          repository: concordex/concordex-sdk-spec
-          ref: v${{ steps.spec.outputs.version }}
+          repository: praeceptor-thesis/concordex-sdk-spec
+          ref: ${{ steps.spec_ref.outputs.ref }}
           path: concordex-sdk-spec
 
-      - name: Verify spec VERSION matches pin
+      - name: Verify spec VERSION matches pin (release mode only)
+        if: steps.spec_ref.outputs.mode == 'release'
         run: |
           got=$(cat concordex-sdk-spec/VERSION | tr -d '[:space:]')
           want=${{ steps.spec.outputs.version }}
           if [ "$got" != "$want" ]; then
-            echo "spec VERSION='$got' does not match pin='$want'"
+            echo "::error::spec VERSION='$got' does not match pin='$want'"
             exit 1
           fi
 

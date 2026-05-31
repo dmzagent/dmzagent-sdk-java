@@ -249,7 +249,7 @@ For staging or self-hosted:
 ```java
 var cx = new ConcordexClient(
     "ck_…",
-    "https://staging.api.praeceptor-thesis.com",
+    "https://staging.api.eastern-shore-solutions.com",
     Duration.ofSeconds(30),
     "my-app/1.2.3");
 ```
