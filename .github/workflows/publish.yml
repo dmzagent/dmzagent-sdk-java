@@ -1,0 +1,76 @@
+name: publish
+
+# Triggered by repository_dispatch from concordex-sdk-spec/promote.yml
+# once spec-conformance is green across every SDK. The dispatched
+# payload carries the version the spec repo wants released.
+#
+# Required secrets:
+#   OSSRH_USERNAME      Sonatype OSSRH JIRA username.
+#   OSSRH_TOKEN         Sonatype OSSRH token.
+#   GPG_PRIVATE_KEY     Armored private key for signing the artifact.
+#   GPG_PASSPHRASE      Passphrase for GPG_PRIVATE_KEY.
+#
+# Required `id-token: write` and `contents: read` permissions for
+# Sigstore-compatible provenance attestation in a future follow-up.
+
+on:
+  repository_dispatch:
+    types: [publish]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.5.0)'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: publish ${{ github.event.client_payload.version || inputs.version }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ github.event.client_payload.version || inputs.version }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          # configure-maven-settings: write Sonatype creds into ~/.m2/settings.xml
+          server-id: ossrh
+          server-username: OSSRH_USERNAME
+          server-password: OSSRH_TOKEN
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase:  GPG_PASSPHRASE
+
+      - name: Verify pom version matches dispatched version
+        run: |
+          want=${{ github.event.client_payload.version || inputs.version }}
+          got=$(grep -oP '(?<=<version>)[^<]+' pom.xml | head -1)
+          if [ "$got" != "$want" ]; then
+            echo "pom.xml version='$got' does not match dispatched='$want'"
+            exit 1
+          fi
+
+      - name: Deploy to OSSRH staging
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_TOKEN:    ${{ secrets.OSSRH_TOKEN }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: mvn -B -ntp -Prelease deploy
+
+      # nexus-staging-maven-plugin is configured with
+      # autoReleaseAfterClose=true, so a successful `deploy` runs:
+      #   1. Stage to OSSRH.
+      #   2. Close the staging repo (triggers Sonatype validation).
+      #   3. Release to Central.
+      # If any step fails, the staging repo is dropped automatically
+      # and this workflow exits non-zero — promote.yml then runs
+      # yank.yml against any SDK that did publish.
