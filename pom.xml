@@ -7,7 +7,7 @@
 
   <groupId>dev.concordex</groupId>
   <artifactId>concordex-sdk</artifactId>
-  <version>0.5.0</version>
+  <version>0.6.0</version>
   <packaging>jar</packaging>
 
   <name>Concordex SDK</name>
