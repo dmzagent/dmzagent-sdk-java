@@ -1,14 +1,14 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import dev.concordex.sdk.exceptions.CircuitBreakerOpenException;
-import dev.concordex.sdk.exceptions.ConcordexAuthException;
-import dev.concordex.sdk.exceptions.ConcordexException;
-import dev.concordex.sdk.exceptions.ConcordexPermissionException;
-import dev.concordex.sdk.exceptions.ConcordexServerException;
-import dev.concordex.sdk.exceptions.ConcordexValidationException;
+import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
+import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
+import com.dmzagent.sdk.exceptions.DMZAgentException;
+import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
+import com.dmzagent.sdk.exceptions.DMZAgentServerException;
+import com.dmzagent.sdk.exceptions.DMZAgentValidationException;
 import okhttp3.Interceptor;
 import okhttp3.MediaType;
 import okhttp3.Protocol;
@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Contract test harness — drives the JSON corpus from the
- * {@code concordex-sdk-spec} repo against the Java SDK build.
+ * {@code dmzagent-sdk-spec} repo against the Java SDK build.
  *
  * <p>Three corpora per {@code runner-spec.md}:
  *
@@ -83,20 +83,20 @@ class ContractTests {
      * The spec corpus lives in a sibling repo. Resolution order:
      *
      * <ol>
-     *   <li>{@code CONCORDEX_SPEC_PATH} env var (CI sets this).</li>
+     *   <li>{@code DMZAGENT_SPEC_PATH} env var (CI sets this).</li>
      *   <li>The {@code spec.path.default} from
      *       {@code spec-version.properties}.</li>
      * </ol>
      */
     private static Path specRoot() {
-        String env = System.getenv("CONCORDEX_SPEC_PATH");
+        String env = System.getenv("DMZAGENT_SPEC_PATH");
         if (env != null && !env.isEmpty()) return Paths.get(env);
 
         try (InputStream in = ContractTests.class.getClassLoader()
                 .getResourceAsStream("spec-version.properties")) {
             Properties p = new Properties();
             if (in != null) p.load(in);
-            String def = p.getProperty("spec.path.default", "../concordex-sdk-spec");
+            String def = p.getProperty("spec.path.default", "../dmzagent-sdk-spec");
             return Paths.get(def);
         } catch (IOException e) {
             throw new RuntimeException("could not load spec-version.properties", e);
@@ -180,7 +180,7 @@ class ContractTests {
             String name = (String) f.get("name");
             tests.add(DynamicTest.dynamicTest("envelope/" + name, () -> {
                 Capture cap = new Capture();
-                try (ConcordexClient cx = new ConcordexClient(
+                try (DMZAgentClient cx = new DMZAgentClient(
                         API_KEY, "http://contract.invalid", null, null,
                         cap.interceptor())) {
                     callMethod(cx,
@@ -209,13 +209,13 @@ class ContractTests {
             tests.add(DynamicTest.dynamicTest("envelope/" + name, () -> {
                 if ("construct".equals(method)) {
                     String key = (String) args.get("api_key");
-                    assertThatThrownBy(() -> new ConcordexClient(key))
+                    assertThatThrownBy(() -> new DMZAgentClient(key))
                         .isInstanceOf(IllegalArgumentException.class)
                         .hasMessageContaining(wantContain);
                     return;
                 }
                 Capture cap = new Capture();
-                try (ConcordexClient cx = new ConcordexClient(
+                try (DMZAgentClient cx = new DMZAgentClient(
                         API_KEY, "http://contract.invalid", null, null,
                         cap.interceptor())) {
                     assertThatThrownBy(() -> callMethod(cx, method, args))
@@ -318,7 +318,7 @@ class ContractTests {
                 Map<String, Object> args = (Map<String, Object>) f.get("args");
                 String wantExc = (String) f.get("expected_exception");
 
-                try (ConcordexClient cx = new ConcordexClient(
+                try (DMZAgentClient cx = new DMZAgentClient(
                         API_KEY, "http://contract.invalid", null, null,
                         cannedResponse(status, body))) {
 
@@ -365,7 +365,7 @@ class ContractTests {
                         .as("error mapping for " + name)
                         .isInstanceOf(expected)
                         .satisfies(t -> {
-                            ConcordexException ce = (ConcordexException) t;
+                            DMZAgentException ce = (DMZAgentException) t;
                             Integer wantStatus = (Integer) f.get("expected_status_code");
                             if (wantStatus != null) {
                                 assertThat(ce.statusCode())
@@ -380,11 +380,11 @@ class ContractTests {
 
     private static Class<? extends Throwable> mapException(String canonical) {
         return switch (canonical) {
-            case "AuthError"       -> ConcordexAuthException.class;
-            case "PermissionError" -> ConcordexPermissionException.class;
-            case "ValidationError" -> ConcordexValidationException.class;
-            case "ServerError"     -> ConcordexServerException.class;
-            case "ConcordexError"  -> ConcordexException.class;
+            case "AuthError"       -> DMZAgentAuthException.class;
+            case "PermissionError" -> DMZAgentPermissionException.class;
+            case "ValidationError" -> DMZAgentValidationException.class;
+            case "ServerError"     -> DMZAgentServerException.class;
+            case "DMZAgentError"  -> DMZAgentException.class;
             case "CBOpenError"     -> CircuitBreakerOpenException.class;
             default -> throw new IllegalArgumentException(
                 "unknown canonical exception: " + canonical);
@@ -397,7 +397,7 @@ class ContractTests {
     // ===================================================================== //
 
     @SuppressWarnings("unchecked")
-    private static void callMethod(ConcordexClient cx, String method,
+    private static void callMethod(DMZAgentClient cx, String method,
                                    Map<String, Object> args) {
         switch (method) {
             case "subject_says" -> cx.subjectSays(

@@ -5,18 +5,18 @@
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>dev.concordex</groupId>
-  <artifactId>concordex-sdk</artifactId>
+  <groupId>com.dmzagent</groupId>
+  <artifactId>dmzagent-sdk</artifactId>
   <version>0.6.0</version>
   <packaging>jar</packaging>
 
-  <name>Concordex SDK</name>
+  <name>DMZAgent SDK</name>
   <description>
-    Official Java SDK for Concordex — emit agent-stream events, run
+    Official Java SDK for DMZAgent — emit agent-stream events, run
     circuit-breaker checks, verify outbound webhook signatures. Tracks
-    the language-agnostic spec at concordex-sdk-spec.
+    the language-agnostic spec at dmzagent-sdk-spec.
   </description>
-  <url>https://github.com/concordex/concordex-sdk-java</url>
+  <url>https://github.com/dmzagent/dmzagent-sdk-java</url>
 
   <licenses>
     <license>
@@ -28,18 +28,18 @@
 
   <developers>
     <developer>
-      <id>concordex</id>
-      <name>Concordex</name>
-      <email>support@concordex.dev</email>
-      <organization>Concordex</organization>
-      <organizationUrl>https://concordex.dev</organizationUrl>
+      <id>dmzagent</id>
+      <name>DMZAgent</name>
+      <email>support@dmzagent.com</email>
+      <organization>DMZAgent</organization>
+      <organizationUrl>https://dmzagent.com</organizationUrl>
     </developer>
   </developers>
 
   <scm>
-    <connection>scm:git:git://github.com/concordex/concordex-sdk-java.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/concordex/concordex-sdk-java.git</developerConnection>
-    <url>https://github.com/concordex/concordex-sdk-java/tree/main</url>
+    <connection>scm:git:git://github.com/dmzagent/dmzagent-sdk-java.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/dmzagent/dmzagent-sdk-java.git</developerConnection>
+    <url>https://github.com/dmzagent/dmzagent-sdk-java/tree/main</url>
     <tag>HEAD</tag>
   </scm>
 
@@ -54,7 +54,7 @@
       workflow MUST fail loud if this drifts from the checked-out spec
       repo tag.
     -->
-    <concordex.spec.version>0.5.0</concordex.spec.version>
+    <dmzagent.spec.version>0.6.0</dmzagent.spec.version>
 
     <okhttp.version>4.12.0</okhttp.version>
     <jackson.version>2.17.2</jackson.version>

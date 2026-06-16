@@ -1,4 +1,4 @@
-package dev.concordex.sdk.concordia;
+package com.dmzagent.sdk.concordia;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -24,36 +24,36 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaAuthException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaCanonNotInstalledException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaCircuitOpenException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaPermissionDeniedException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaPolicyEngineUnavailableException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaProtocolException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaQuotaExceededException;
-import dev.concordex.sdk.concordia.ConcordiaExceptions.ConcordiaSubjectNotFoundException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaAuthException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaCanonNotInstalledException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaCircuitOpenException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaPermissionDeniedException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaPolicyEngineUnavailableException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaProtocolException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaQuotaExceededException;
+import com.dmzagent.sdk.concordia.ConcordiaExceptions.ConcordiaSubjectNotFoundException;
 
-import dev.concordex.sdk.concordia.ConcordiaTypes.EnforceCovenantResult;
-import dev.concordex.sdk.concordia.ConcordiaTypes.InstalledCanon;
-import dev.concordex.sdk.concordia.ConcordiaTypes.LedgerEntry;
-import dev.concordex.sdk.concordia.ConcordiaTypes.LedgerPage;
-import dev.concordex.sdk.concordia.ConcordiaTypes.PolicySummary;
-import dev.concordex.sdk.concordia.ConcordiaTypes.QueryCorpusResult;
-import dev.concordex.sdk.concordia.ConcordiaTypes.RecordDecisionResult;
-import dev.concordex.sdk.concordia.ConcordiaTypes.SubjectSoul;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.EnforceCovenantResult;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.InstalledCanon;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.LedgerEntry;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.LedgerPage;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.PolicySummary;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.QueryCorpusResult;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.RecordDecisionResult;
+import com.dmzagent.sdk.concordia.ConcordiaTypes.SubjectSoul;
 
 /**
- * Concordia MCP 1.0 client — the governance side of Concordex.
+ * Concordia MCP 1.0 client — the governance side of DMZAgent.
  *
- * <p>Companion to {@code dev.concordex.sdk.ConcordexClient} for the
+ * <p>Companion to {@code com.dmzagent.sdk.DMZAgentClient} for the
  * agent-stream surface. Customer agents speak MCP 1.0 over JSON-RPC
  * against {@code /mcp/v1} to enforce covenants, record audit
  * decisions, query installed Canons, and read soul snapshots.
  *
  * <pre>{@code
  * try (var client = new ConcordiaClient.Builder()
- *         .apiKey(System.getenv("CONCORDEX_API_KEY"))
+ *         .apiKey(System.getenv("DMZAGENT_API_KEY"))
  *         .build()) {
  *
  *     EnforceCovenantResult v = client.enforceCovenant(
@@ -84,9 +84,9 @@ import dev.concordex.sdk.concordia.ConcordiaTypes.SubjectSoul;
 public final class ConcordiaClient implements AutoCloseable {
 
     /** Production base URL. */
-    public static final String DEFAULT_BASE_URL  = "https://api.concordex.dev";
+    public static final String DEFAULT_BASE_URL  = "https://api.dmzagent.com";
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
-    public static final String DEFAULT_USER_AGENT = "concordex-concordia-java/0.6.0";
+    public static final String DEFAULT_USER_AGENT = "dmzagent-concordia-java/0.6.0";
 
     private static final String MCP_PATH = "/mcp/v1";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
@@ -101,11 +101,11 @@ public final class ConcordiaClient implements AutoCloseable {
     private ConcordiaClient(Builder b) {
         if (b.apiKey == null || b.apiKey.isEmpty()) {
             throw new ConcordiaException(
-                "apiKey required (pass apiKey or set CONCORDEX_API_KEY)");
+                "apiKey required (pass apiKey or set DMZAGENT_API_KEY)");
         }
         if (!b.apiKey.startsWith("ck_")) {
             throw new ConcordiaException(
-                "apiKey must start with 'ck_' — double-check you copied a Concordex key, not another service's token");
+                "apiKey must start with 'ck_' — double-check you copied a DMZAgent key, not another service's token");
         }
         this.apiKey    = b.apiKey;
         this.baseUrl   = stripTrailingSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
@@ -450,7 +450,7 @@ public final class ConcordiaClient implements AutoCloseable {
         public ConcordiaClient build() {
             // Resolve apiKey from env if not set explicitly.
             if (this.apiKey == null) {
-                this.apiKey = System.getenv("CONCORDEX_API_KEY");
+                this.apiKey = System.getenv("DMZAGENT_API_KEY");
             }
             return new ConcordiaClient(this);
         }

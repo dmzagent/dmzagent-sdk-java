@@ -1,10 +1,10 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
-import dev.concordex.sdk.exceptions.CircuitBreakerOpenException;
+import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
 
 /**
  * {@link AutoCloseable} wrapper around a {@link CheckResult},
- * returned from {@code ConcordexClient.guard(...)} and
+ * returned from {@code DMZAgentClient.guard(...)} and
  * {@code Conversation.guard(...)} for use with try-with-resources.
  *
  * <p>Per spec §5.7, the Java idiom is:
@@ -19,7 +19,7 @@ import dev.concordex.sdk.exceptions.CircuitBreakerOpenException;
  * }</pre>
  *
  * <p>When {@code raiseOnOpen=true} and the result is open, the
- * underlying {@code ConcordexClient.guard(...)} factory throws
+ * underlying {@code DMZAgentClient.guard(...)} factory throws
  * {@link CircuitBreakerOpenException} BEFORE returning the Guard —
  * so the try-with-resources body never executes.
  *

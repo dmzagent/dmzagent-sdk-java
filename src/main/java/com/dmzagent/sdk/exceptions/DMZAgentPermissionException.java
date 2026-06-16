@@ -1,4 +1,4 @@
-package dev.concordex.sdk.exceptions;
+package com.dmzagent.sdk.exceptions;
 
 /**
  * Raised on HTTP 403 — the API key is valid but lacks the scope
@@ -6,8 +6,8 @@ package dev.concordex.sdk.exceptions;
  *
  * <p>Spec §3, canonical name {@code PermissionError}.
  */
-public class ConcordexPermissionException extends ConcordexException {
-    public ConcordexPermissionException(String message, Integer statusCode, Object body) {
+public class DMZAgentPermissionException extends DMZAgentException {
+    public DMZAgentPermissionException(String message, Integer statusCode, Object body) {
         super(message, statusCode, body);
     }
 }

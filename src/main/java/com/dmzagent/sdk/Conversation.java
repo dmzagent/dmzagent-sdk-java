@@ -1,4 +1,4 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -44,7 +44,7 @@ public final class Conversation implements AutoCloseable {
      * agent for the wire protocol's agent_subject_id requirement." */
     private static final Set<String> AGENT_ROLES = Set.of("agent", "service", "system");
 
-    private final ConcordexClient client;
+    private final DMZAgentClient client;
     private final String          agentSubjectId;
     private final String          interactionKind;
     private final Map<String, Object> metadata;
@@ -53,7 +53,7 @@ public final class Conversation implements AutoCloseable {
     private boolean closed = false;
 
     Conversation(
-        ConcordexClient           client,
+        DMZAgentClient           client,
         List<Map<String, Object>> participants,
         String                    agentSubjectId,
         String                    interactionKind,

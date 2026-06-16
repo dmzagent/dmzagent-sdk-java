@@ -1,23 +1,23 @@
-package dev.concordex.sdk.exceptions;
+package com.dmzagent.sdk.exceptions;
 
 /**
- * Base class for every error raised by the Concordex SDK.
+ * Base class for every error raised by the DMZAgent SDK.
  *
  * <p>The hierarchy is deliberately shallow — most consumers only need
- * to catch {@code ConcordexException} to bail out gracefully, or
+ * to catch {@code DMZAgentException} to bail out gracefully, or
  * {@link CircuitBreakerOpenException} specifically when they want to
  * handle a blocked subject differently from other failures.
  *
  * <pre>
- *   ConcordexException                       base
- *     ├── ConcordexAuthException             API key invalid / revoked
- *     ├── ConcordexPermissionException       API key lacks scope
- *     ├── ConcordexValidationException       server rejected payload (400)
- *     ├── ConcordexServerException           5xx / network / timeout
+ *   DMZAgentException                       base
+ *     ├── DMZAgentAuthException             API key invalid / revoked
+ *     ├── DMZAgentPermissionException       API key lacks scope
+ *     ├── DMZAgentValidationException       server rejected payload (400)
+ *     ├── DMZAgentServerException           5xx / network / timeout
  *     └── CircuitBreakerOpenException        cb.check() returned open
  * </pre>
  *
- * <p>{@code ConcordexException} extends {@link RuntimeException} so
+ * <p>{@code DMZAgentException} extends {@link RuntimeException} so
  * SDK calls don't force {@code throws} declarations through the
  * caller's code. This mirrors Java's HTTP-client and JDBC-driver
  * conventions for transport-level errors.
@@ -25,20 +25,20 @@ package dev.concordex.sdk.exceptions;
  * <p>Per spec §3, every exception MUST expose {@code message},
  * {@code statusCode}, and {@code body}.
  */
-public class ConcordexException extends RuntimeException {
+public class DMZAgentException extends RuntimeException {
 
     private final Integer statusCode;
     private final Object  body;
 
-    public ConcordexException(String message) {
+    public DMZAgentException(String message) {
         this(message, null, null, null);
     }
 
-    public ConcordexException(String message, Integer statusCode, Object body) {
+    public DMZAgentException(String message, Integer statusCode, Object body) {
         this(message, statusCode, body, null);
     }
 
-    public ConcordexException(String message, Integer statusCode, Object body, Throwable cause) {
+    public DMZAgentException(String message, Integer statusCode, Object body, Throwable cause) {
         super(message, cause);
         this.statusCode = statusCode;
         this.body       = body;

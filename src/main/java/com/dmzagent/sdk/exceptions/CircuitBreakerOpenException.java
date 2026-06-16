@@ -1,4 +1,4 @@
-package dev.concordex.sdk.exceptions;
+package com.dmzagent.sdk.exceptions;
 
 import java.util.List;
 import java.util.Map;
@@ -31,7 +31,7 @@ import java.util.Map;
  *   <li>{@link #scopeRef} — the subject_id or interaction_id that was blocked.
  * </ul>
  */
-public class CircuitBreakerOpenException extends ConcordexException {
+public class CircuitBreakerOpenException extends DMZAgentException {
 
     private final String                    reason;
     private final List<Map<String, Object>> firedPolicies;

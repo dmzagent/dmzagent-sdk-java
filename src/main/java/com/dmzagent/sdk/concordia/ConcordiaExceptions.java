@@ -1,4 +1,4 @@
-package dev.concordex.sdk.concordia;
+package com.dmzagent.sdk.concordia;
 
 import java.util.Collections;
 import java.util.Map;
@@ -66,7 +66,7 @@ public final class ConcordiaExceptions {
          * failures. */
         public Integer code() { return code; }
 
-        /** Concordex error slug from {@code error.data.error_id}
+        /** DMZAgent error slug from {@code error.data.error_id}
          * (e.g. {@code "auth_expired"}). */
         public String errorId() { return errorId; }
 

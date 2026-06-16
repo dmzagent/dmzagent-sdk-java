@@ -1,4 +1,4 @@
-package dev.concordex.sdk.exceptions;
+package com.dmzagent.sdk.exceptions;
 
 /**
  * Raised on HTTP 400 — the server rejected the request body as
@@ -12,8 +12,8 @@ package dev.concordex.sdk.exceptions;
  * {@link IllegalArgumentException}, NOT this class. This class is
  * reserved for {@code 400} responses from the server.
  */
-public class ConcordexValidationException extends ConcordexException {
-    public ConcordexValidationException(String message, Integer statusCode, Object body) {
+public class DMZAgentValidationException extends DMZAgentException {
+    public DMZAgentValidationException(String message, Integer statusCode, Object body) {
         super(message, statusCode, body);
     }
 }

@@ -1,4 +1,4 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Return type of {@link ConcordexClient#check}.
+ * Return type of {@link DMZAgentClient#check}.
  *
  * <p>Per spec §7.2: {@code allow} is {@code false} only when
  * {@code state} is {@code "open"}. {@code warning} is {@code true}

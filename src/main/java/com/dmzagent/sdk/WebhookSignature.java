@@ -1,4 +1,4 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -7,9 +7,9 @@ import java.security.MessageDigest;
 import java.time.Instant;
 
 /**
- * Verifier for Concordex outbound webhook signatures.
+ * Verifier for DMZAgent outbound webhook signatures.
  *
- * <p>Concordex signs outbound webhooks with HMAC-SHA256 using the
+ * <p>DMZAgent signs outbound webhooks with HMAC-SHA256 using the
  * subscription's secret. The signature is carried in a header of
  * the form:
  *
@@ -66,7 +66,7 @@ public final class WebhookSignature {
      * Verify a webhook signature.
      *
      * @param payload          raw request body as a UTF-8 string.
-     * @param header           the {@code Concordex-Signature} header value.
+     * @param header           the {@code DMZAgent-Signature} header value.
      * @param secret           the subscription secret (start with {@code whsec_}).
      * @param toleranceSeconds reject when {@code |now - t| > toleranceSeconds}.
      * @param nowUnix          unix-seconds "now" override; {@code null}

@@ -1,6 +1,6 @@
 name: publish
 
-# Triggered by repository_dispatch from concordex-sdk-spec/promote.yml
+# Triggered by repository_dispatch from dmzagent-sdk-spec/promote.yml
 # once spec-conformance is green across every SDK. The dispatched
 # payload carries the version the spec repo wants released.
 #

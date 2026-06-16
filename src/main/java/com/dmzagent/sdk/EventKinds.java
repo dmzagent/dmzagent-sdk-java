@@ -1,4 +1,4 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import java.util.List;
 

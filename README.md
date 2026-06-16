@@ -1,15 +1,15 @@
-# Concordex SDK — Java
+# DMZAgent SDK — Java
 
-[![Maven Central](https://img.shields.io/maven-central/v/dev.concordex/concordex-sdk.svg)](https://search.maven.org/artifact/dev.concordex/concordex-sdk)
-[![spec](https://img.shields.io/badge/spec-0.5.0-blue)](https://github.com/concordex/concordex-sdk-spec/tree/v0.5.0)
+[![Maven Central](https://img.shields.io/maven-central/v/com.dmzagent/dmzagent-sdk.svg)](https://search.maven.org/artifact/com.dmzagent/dmzagent-sdk)
+[![spec](https://img.shields.io/badge/spec-0.5.0-blue)](https://github.com/dmzagent/dmzagent-sdk-spec/tree/v0.5.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Official Java SDK for [Concordex](https://concordex.dev) — emit
+Official Java SDK for [DMZAgent](https://dmzagent.com) — emit
 agent-stream events, run circuit-breaker checks, verify outbound
 webhook signatures.
 
 The surface is defined by the language-agnostic
-[`concordex-sdk-spec`](https://github.com/concordex/concordex-sdk-spec)
+[`dmzagent-sdk-spec`](https://github.com/dmzagent/dmzagent-sdk-spec)
 and is identical across the Python, TypeScript, C#, and Java SDKs —
 same constructor shape, same methods (under each language's
 idiomatic naming), same return types, same error hierarchy, same
@@ -23,8 +23,8 @@ wire protocol. This SDK pins to **spec version 0.5.0**.
 
 ```xml
 <dependency>
-  <groupId>dev.concordex</groupId>
-  <artifactId>concordex-sdk</artifactId>
+  <groupId>com.dmzagent</groupId>
+  <artifactId>dmzagent-sdk</artifactId>
   <version>0.5.0</version>
 </dependency>
 ```
@@ -33,7 +33,7 @@ wire protocol. This SDK pins to **spec version 0.5.0**.
 
 ```kotlin
 dependencies {
-    implementation("dev.concordex:concordex-sdk:0.5.0")
+    implementation("com.dmzagent:dmzagent-sdk:0.5.0")
 }
 ```
 
@@ -41,7 +41,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'dev.concordex:concordex-sdk:0.5.0'
+    implementation 'com.dmzagent:dmzagent-sdk:0.5.0'
 }
 ```
 
@@ -52,9 +52,9 @@ Requires **Java 17+**.
 ## Quick start
 
 ```java
-import dev.concordex.sdk.ConcordexClient;
+import com.dmzagent.sdk.DMZAgentClient;
 
-try (var cx = new ConcordexClient("ck_...")) {
+try (var cx = new DMZAgentClient("ck_...")) {
 
     cx.subjectSays(
         "user:ws:cust",          // subject_id (the speaker)
@@ -182,17 +182,17 @@ Add participants mid-conversation with `conv.addSubject(id, role, kind)`.
 
 ## Webhook signature verification
 
-Concordex signs outbound webhooks with HMAC-SHA256. Use
-`WebhookSignature.verify` to check the `Concordex-Signature` header
+DMZAgent signs outbound webhooks with HMAC-SHA256. Use
+`WebhookSignature.verify` to check the `DMZAgent-Signature` header
 before trusting a payload:
 
 ```java
-import dev.concordex.sdk.WebhookSignature;
+import com.dmzagent.sdk.WebhookSignature;
 
 boolean valid = WebhookSignature.verify(
     rawRequestBody,                                // payload (UTF-8 string)
-    request.getHeader("Concordex-Signature"),      // "t=<unix>,v1=<hex>"
-    System.getenv("CONCORDEX_WEBHOOK_SECRET"));    // whsec_…
+    request.getHeader("DMZAgent-Signature"),      // "t=<unix>,v1=<hex>"
+    System.getenv("DMZAGENT_WEBHOOK_SECRET"));    // whsec_…
 
 if (!valid) {
     response.setStatus(401);
@@ -213,11 +213,11 @@ digest mismatch) — it does **not** throw on bad input.
 ## Exception hierarchy
 
 ```
-ConcordexException                         base (RuntimeException)
-  ├── ConcordexAuthException               401
-  ├── ConcordexPermissionException         403
-  ├── ConcordexValidationException         400
-  ├── ConcordexServerException             5xx / network / timeout
+DMZAgentException                         base (RuntimeException)
+  ├── DMZAgentAuthException               401
+  ├── DMZAgentPermissionException         403
+  ├── DMZAgentValidationException         400
+  ├── DMZAgentServerException             5xx / network / timeout
   └── CircuitBreakerOpenException          guard(raiseOnOpen=true) + allow=false
 ```
 
@@ -228,7 +228,7 @@ Every exception exposes `message`, `statusCode()`, and `body()`.
 Client-side argument validation (unknown event kind, both /
 neither of `subjectId`/`interactionId` on `check`, missing `ck_`
 prefix on the API key) raises `IllegalArgumentException`, not
-`ConcordexValidationException` — the latter is reserved for `400`
+`DMZAgentValidationException` — the latter is reserved for `400`
 responses from the server.
 
 ---
@@ -240,14 +240,14 @@ Every constructor parameter has a documented default:
 | Parameter   | Default                          |
 |-------------|----------------------------------|
 | `apiKey`    | (required — must start `ck_`)    |
-| `baseUrl`   | `https://api.concordex.dev`      |
+| `baseUrl`   | `https://api.dmzagent.com`      |
 | `timeout`   | `Duration.ofMillis(10_000)`      |
-| `userAgent` | `concordex-java/0.5.0`           |
+| `userAgent` | `dmzagent-java/0.5.0`           |
 
 For staging or self-hosted:
 
 ```java
-var cx = new ConcordexClient(
+var cx = new DMZAgentClient(
     "ck_…",
     "https://staging.api.eastern-shore-solutions.com",
     Duration.ofSeconds(30),
@@ -268,16 +268,16 @@ worth the surface-area cost.
 In the meantime, callers who need non-blocking semantics should
 dispatch SDK calls into an `ExecutorService` of their choice. The
 underlying OkHttp client is thread-safe and supports concurrent
-calls from a single `ConcordexClient` instance.
+calls from a single `DMZAgentClient` instance.
 
 ---
 
 ## Versioning
 
 This SDK follows the language-agnostic spec at
-[concordex-sdk-spec](https://github.com/concordex/concordex-sdk-spec).
+[dmzagent-sdk-spec](https://github.com/dmzagent/dmzagent-sdk-spec).
 A spec tag `v0.5.0` corresponds 1:1 to release tags in this and
-every other Concordex SDK repo. No SDK ships a version the spec
+every other DMZAgent SDK repo. No SDK ships a version the spec
 hasn't blessed.
 
 Pre-1.0 (current): MINOR bumps MAY include breaking wire changes;

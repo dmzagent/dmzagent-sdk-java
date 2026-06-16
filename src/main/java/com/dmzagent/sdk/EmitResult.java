@@ -1,4 +1,4 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -12,7 +12,7 @@ import java.util.Optional;
  *
  * <p>In synchronous mode (the default), the server returns the full
  * envelope after reasoning completes — frame_id, outcome, tags fired,
- * and so on. In async mode (header {@code X-Concordex-Async: true})
+ * and so on. In async mode (header {@code X-DMZAgent-Async: true})
  * only {@code interactionId}, {@code subjects}, and {@code queued=true}
  * are populated; every other component is {@code Optional.empty()}.
  *

@@ -1,4 +1,4 @@
-package dev.concordex.sdk.concordia;
+package com.dmzagent.sdk.concordia;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;

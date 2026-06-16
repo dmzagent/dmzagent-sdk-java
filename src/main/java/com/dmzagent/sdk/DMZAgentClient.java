@@ -1,14 +1,14 @@
-package dev.concordex.sdk;
+package com.dmzagent.sdk;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import dev.concordex.sdk.exceptions.CircuitBreakerOpenException;
-import dev.concordex.sdk.exceptions.ConcordexAuthException;
-import dev.concordex.sdk.exceptions.ConcordexException;
-import dev.concordex.sdk.exceptions.ConcordexPermissionException;
-import dev.concordex.sdk.exceptions.ConcordexServerException;
-import dev.concordex.sdk.exceptions.ConcordexValidationException;
+import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
+import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
+import com.dmzagent.sdk.exceptions.DMZAgentException;
+import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
+import com.dmzagent.sdk.exceptions.DMZAgentServerException;
+import com.dmzagent.sdk.exceptions.DMZAgentValidationException;
 import okhttp3.Interceptor;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -22,24 +22,27 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Synchronous Concordex client — the SDK's main entry point.
+ * Synchronous DMZAgent client — the SDK's main entry point.
  *
- * <p>Per spec §4, the Java class name is {@code ConcordexClient}
- * (not the bare {@code Concordex} that Python and TypeScript use)
+ * <p>Per spec §4, the Java class name is {@code DMZAgentClient}
+ * (not the bare {@code DMZAgent} that Python and TypeScript use)
  * because Java reserves unqualified type names for value-bearing
  * entities and expects a {@code Client} suffix on HTTP service
  * classes.
  *
  * <p>The client is sync-first. OkHttp's call dispatcher is thread-safe,
- * so a single {@code ConcordexClient} instance can be shared across
+ * so a single {@code DMZAgentClient} instance can be shared across
  * threads. Most agent runtimes already manage their own thread/executor
  * model; an async overload returning {@code CompletableFuture<...>}
  * may land in a later spec version when customer demand confirms
@@ -48,7 +51,7 @@ import java.util.concurrent.TimeUnit;
  * <p>Quick start:
  *
  * <pre>{@code
- *   try (var cx = new ConcordexClient("ck_...")) {
+ *   try (var cx = new DMZAgentClient("ck_...")) {
  *       cx.subjectSays(
  *           "user:ws:cust",                       // subject_id (speaker)
  *           "I want a refund.",                   // text
@@ -63,13 +66,13 @@ import java.util.concurrent.TimeUnit;
  *   }
  * }</pre>
  */
-public final class ConcordexClient implements AutoCloseable {
+public final class DMZAgentClient implements AutoCloseable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ConcordexClient.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DMZAgentClient.class);
 
-    private static final String   DEFAULT_BASE_URL = "https://api.concordex.dev";
+    private static final String   DEFAULT_BASE_URL = "https://api.dmzagent.com";
     private static final Duration DEFAULT_TIMEOUT  = Duration.ofMillis(10_000);
-    private static final String   DEFAULT_UA       = "concordex-java/0.5.0";
+    private static final String   DEFAULT_UA       = "dmzagent-java/0.6.0";
 
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
@@ -81,17 +84,19 @@ public final class ConcordexClient implements AutoCloseable {
     private final String       userAgent;
     private boolean closed = false;
 
+    static final Set<String> VALID_SUBJECT_TYPES = Set.of("chat", "sensor", "lead", "ticket", "journey");
+
     // ===================================================================== //
     // Construction
     // ===================================================================== //
 
-    /** Construct with defaults: api.concordex.dev, 10s timeout, default UA. */
-    public ConcordexClient(String apiKey) {
+    /** Construct with defaults: api.dmzagent.com, 10s timeout, default UA. */
+    public DMZAgentClient(String apiKey) {
         this(apiKey, DEFAULT_BASE_URL, DEFAULT_TIMEOUT, DEFAULT_UA, null);
     }
 
     /** Builder-style explicit constructor. */
-    public ConcordexClient(
+    public DMZAgentClient(
         String   apiKey,
         String   baseUrl,
         Duration timeout,
@@ -112,7 +117,7 @@ public final class ConcordexClient implements AutoCloseable {
      * <p>Per spec §1.2, this constructor rejects empty keys and keys
      * that don't start with {@code ck_}.
      */
-    public ConcordexClient(
+    public DMZAgentClient(
         String      apiKey,
         String      baseUrl,
         Duration    timeout,
@@ -176,9 +181,31 @@ public final class ConcordexClient implements AutoCloseable {
         String              occurredAt,
         Map<String, Object> metadata
     ) {
+        return emitEvent(kind, "sensor", agentSubjectId, payload,
+            interactionId, interactionKind, subjects,
+            speakerSubjectId, speakerRole, occurredAt, metadata);
+    }
+
+    public EmitResult emitEvent(
+        String              kind,
+        String              subjectType,
+        String              agentSubjectId,
+        Map<String, Object> payload,
+        String              interactionId,
+        String              interactionKind,
+        List<Map<String, Object>> subjects,
+        String              speakerSubjectId,
+        String              speakerRole,
+        String              occurredAt,
+        Map<String, Object> metadata
+    ) {
         if (!EventKinds.ALL.contains(kind)) {
             throw new IllegalArgumentException(
                 "kind must be one of " + EventKinds.ALL + ", got '" + kind + "'");
+        }
+        if (subjectType == null || !VALID_SUBJECT_TYPES.contains(subjectType)) {
+            throw new IllegalArgumentException(
+                "subjectType must be one of [chat, sensor, lead, ticket, journey], got '" + subjectType + "'");
         }
         if (agentSubjectId == null || agentSubjectId.isEmpty()) {
             throw new IllegalArgumentException("agentSubjectId is required");
@@ -186,6 +213,7 @@ public final class ConcordexClient implements AutoCloseable {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("kind",             kind);
+        body.put("subject_type",     subjectType);
         body.put("agent_subject_id", agentSubjectId);
         body.put("payload",          payload != null ? payload : Map.of());
         if (interactionId    != null && !interactionId.isEmpty())    body.put("interaction_id",     interactionId);
@@ -222,6 +250,19 @@ public final class ConcordexClient implements AutoCloseable {
         List<Map<String, Object>> subjects,
         Map<String, Object>       payloadExtra
     ) {
+        return subjectSays(subjectId, text, agentSubjectId, "sensor",
+            interactionId, subjects, payloadExtra);
+    }
+
+    public EmitResult subjectSays(
+        String                    subjectId,
+        String                    text,
+        String                    agentSubjectId,
+        String                    subjectType,
+        String                    interactionId,
+        List<Map<String, Object>> subjects,
+        Map<String, Object>       payloadExtra
+    ) {
         Objects.requireNonNull(subjectId, "subjectId");
         Objects.requireNonNull(text, "text");
         if (agentSubjectId == null || agentSubjectId.isEmpty()) {
@@ -236,13 +277,14 @@ public final class ConcordexClient implements AutoCloseable {
 
         return emitEvent(
             EventKinds.SUBJECT_SAYS,
+            subjectType,
             agentSubjectId,
             payload,
             interactionId,
             "chat_session",
             subjects,
-            subjectId,         // speaker_subject_id
-            null,              // speaker_role
+            subjectId,
+            null,
             null, null
         );
     }
@@ -261,6 +303,17 @@ public final class ConcordexClient implements AutoCloseable {
         String                    interactionId,
         List<Map<String, Object>> subjects
     ) {
+        return toolCall(subjectId, tool, args, "sensor", interactionId, subjects);
+    }
+
+    public EmitResult toolCall(
+        String                    subjectId,
+        String                    tool,
+        Map<String, Object>       args,
+        String                    subjectType,
+        String                    interactionId,
+        List<Map<String, Object>> subjects
+    ) {
         Objects.requireNonNull(subjectId, "subjectId");
         Objects.requireNonNull(tool, "tool");
 
@@ -270,13 +323,14 @@ public final class ConcordexClient implements AutoCloseable {
 
         return emitEvent(
             EventKinds.TOOL_CALL,
-            subjectId,         // agent_subject_id = the invoker
+            subjectType,
+            subjectId,
             payload,
             interactionId,
             "chat_session",
             subjects,
-            subjectId,         // speaker_subject_id
-            "agent",           // speaker_role per spec §5.3
+            subjectId,
+            "agent",
             null, null
         );
     }
@@ -294,6 +348,17 @@ public final class ConcordexClient implements AutoCloseable {
         String                    interactionId,
         List<Map<String, Object>> subjects
     ) {
+        return toolResult(subjectId, tool, result, "sensor", interactionId, subjects);
+    }
+
+    public EmitResult toolResult(
+        String                    subjectId,
+        String                    tool,
+        Object                    result,
+        String                    subjectType,
+        String                    interactionId,
+        List<Map<String, Object>> subjects
+    ) {
         Objects.requireNonNull(subjectId, "subjectId");
         Objects.requireNonNull(tool, "tool");
 
@@ -303,12 +368,13 @@ public final class ConcordexClient implements AutoCloseable {
 
         return emitEvent(
             EventKinds.TOOL_RESULT,
+            subjectType,
             subjectId,
             payload,
             interactionId,
             "chat_session",
             subjects,
-            subjectId,         // speaker_subject_id
+            subjectId,
             null,
             null, null
         );
@@ -331,12 +397,23 @@ public final class ConcordexClient implements AutoCloseable {
         Map<String, Object>       payload,
         String                    interactionId
     ) {
+        return observation(agentSubjectId, "sensor", subjects, payload, interactionId);
+    }
+
+    public EmitResult observation(
+        String                    agentSubjectId,
+        String                    subjectType,
+        List<Map<String, Object>> subjects,
+        Map<String, Object>       payload,
+        String                    interactionId
+    ) {
         Objects.requireNonNull(agentSubjectId, "agentSubjectId");
         Objects.requireNonNull(subjects, "subjects");
         Objects.requireNonNull(payload, "payload");
 
         return emitEvent(
             EventKinds.OBSERVATION,
+            subjectType,
             agentSubjectId,
             payload,
             interactionId,
@@ -461,6 +538,122 @@ public final class ConcordexClient implements AutoCloseable {
     }
 
     // ===================================================================== //
+    // Capture — /v1/agent-stream/event (unvalidated)
+    // ===================================================================== //
+
+    public CaptureResult capture(
+        String              subjectId,
+        String              kind,
+        String              subjectType,
+        Map<String, Object> payload,
+        String              agentSubjectId,
+        String              interactionId,
+        String              interactionKind,
+        List<Map<String, Object>> subjects,
+        String              speakerSubjectId,
+        String              speakerRole,
+        String              occurredAt,
+        Map<String, Object> metadata
+    ) {
+        if (kind == null || !EventKinds.ALL.contains(kind)) {
+            throw new IllegalArgumentException(
+                "kind must be one of " + EventKinds.ALL + ", got '" + kind + "'");
+        }
+        if (subjectType == null || !VALID_SUBJECT_TYPES.contains(subjectType)) {
+            throw new IllegalArgumentException(
+                "subjectType must be one of [chat, sensor, lead, ticket, journey], got '" + subjectType + "'");
+        }
+        if (subjectId == null || subjectId.isEmpty()) {
+            throw new IllegalArgumentException("subjectId is required");
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("kind", kind);
+        body.put("subject_id", subjectId);
+        body.put("subject_type", subjectType);
+        body.put("payload", payload != null ? payload : Map.of());
+        if (agentSubjectId != null && !agentSubjectId.isEmpty()) body.put("agent_subject_id", agentSubjectId);
+        if (interactionId != null && !interactionId.isEmpty()) body.put("interaction_id", interactionId);
+        body.put("interaction_kind", interactionKind != null ? interactionKind : "chat_session");
+        if (subjects != null && !subjects.isEmpty()) body.put("subjects", subjects);
+        if (speakerSubjectId != null && !speakerSubjectId.isEmpty()) body.put("speaker_subject_id", speakerSubjectId);
+        if (speakerRole != null && !speakerRole.isEmpty()) body.put("speaker_role", speakerRole);
+        if (occurredAt != null && !occurredAt.isEmpty()) body.put("occurred_at", occurredAt);
+        if (metadata != null && !metadata.isEmpty()) body.put("metadata", metadata);
+
+        Map<String, Object> data = postJson("/v1/agent-stream/event", body);
+        return CaptureResult.fromResponse(data);
+    }
+
+    // ===================================================================== //
+    // Await outcome — /v1/frames/{id}/story
+    // ===================================================================== //
+
+    public OutcomeResult awaitOutcome(String frameId) {
+        return awaitOutcome(frameId, 30.0);
+    }
+
+    public OutcomeResult awaitOutcome(String frameId, double timeoutSeconds) {
+        timeoutSeconds = Math.min(timeoutSeconds, 120.0);
+        long start = System.currentTimeMillis();
+        long end = start + (long)(timeoutSeconds * 1000);
+        long delay = 100;
+        Exception lastError = null;
+        String path = "/v1/frames/" + URLEncoder.encode(frameId, StandardCharsets.UTF_8) + "/story";
+
+        while (System.currentTimeMillis() < end) {
+            try {
+                Thread.sleep(delay);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new DMZAgentServerException("awaitOutcome interrupted", null, null, e);
+            }
+            try {
+                Map<String, Object> data = getJson(path);
+                return OutcomeResult.fromResponse(data);
+            } catch (DMZAgentValidationException | DMZAgentAuthException | DMZAgentPermissionException e) {
+                throw e;
+            } catch (Exception e) {
+                lastError = e;
+            }
+            delay = Math.min(delay * 2, 2000);
+        }
+        throw new DMZAgentServerException(
+            "await_outcome timed out after " + timeoutSeconds + "s for frame " + frameId,
+            null, lastError != null ? lastError.getMessage() : null, lastError);
+    }
+
+    // ===================================================================== //
+    // Notification prefs — /v1/settings/notifications
+    // ===================================================================== //
+
+    public NotificationPrefs getNotificationPrefs() {
+        Map<String, Object> data = getJson("/v1/settings/notifications");
+        return NotificationPrefs.fromResponse(data);
+    }
+
+    public NotificationPrefs updateNotificationPrefs(Map<String, Object> prefs) {
+        Map<String, Object> data = putJson("/v1/settings/notifications", prefs);
+        return NotificationPrefs.fromResponse(data);
+    }
+
+    // ===================================================================== //
+    // Division config — /v1/divisions/{id}/config
+    // ===================================================================== //
+
+    public DivisionConfig getDivisionConfig(String divisionId) {
+        String path = "/v1/divisions/" + URLEncoder.encode(divisionId, StandardCharsets.UTF_8) + "/config";
+        Map<String, Object> data = getJson(path);
+        return DivisionConfig.fromResponse(data);
+    }
+
+    public DivisionConfig updateDivisionConfig(String divisionId, Map<String, Object> config) {
+        String path = "/v1/divisions/" + URLEncoder.encode(divisionId, StandardCharsets.UTF_8) + "/config";
+        Map<String, Object> data = putJson(path, config);
+        return DivisionConfig.fromResponse(data);
+    }
+
+    // ===================================================================== //
     // Resource lifecycle
     // ===================================================================== //
 
@@ -501,12 +694,78 @@ public final class ConcordexClient implements AutoCloseable {
 
         try (Response resp = http.newCall(req).execute()) {
             return handle(resp, path);
-        } catch (SocketTimeoutException | InterruptedIOException e) {
-            throw new ConcordexServerException(
+        } catch (SocketTimeoutException e) {
+            throw new DMZAgentServerException(
+                "timeout calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        } catch (InterruptedIOException e) {
+            throw new DMZAgentServerException(
                 "timeout calling " + path + ": " + e.getMessage(),
                 null, null, e);
         } catch (IOException e) {
-            throw new ConcordexServerException(
+            throw new DMZAgentServerException(
+                "network error calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        }
+    }
+
+    private Map<String, Object> getJson(String path) {
+        String url = baseUrl + path;
+        Request req = new Request.Builder()
+            .url(url)
+            .get()
+            .header("Authorization", "Bearer " + apiKey)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", userAgent)
+            .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            return handle(resp, path);
+        } catch (SocketTimeoutException e) {
+            throw new DMZAgentServerException(
+                "timeout calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        } catch (InterruptedIOException e) {
+            throw new DMZAgentServerException(
+                "timeout calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        } catch (IOException e) {
+            throw new DMZAgentServerException(
+                "network error calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        }
+    }
+
+    private Map<String, Object> putJson(String path, Map<String, Object> body) {
+        String url = baseUrl + path;
+        String json;
+        try {
+            json = mapper.writeValueAsString(body);
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                "could not serialize request body to JSON: " + e.getMessage(), e);
+        }
+
+        Request req = new Request.Builder()
+            .url(url)
+            .put(RequestBody.create(json, JSON_MEDIA))
+            .header("Authorization", "Bearer " + apiKey)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", userAgent)
+            .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            return handle(resp, path);
+        } catch (SocketTimeoutException e) {
+            throw new DMZAgentServerException(
+                "timeout calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        } catch (InterruptedIOException e) {
+            throw new DMZAgentServerException(
+                "timeout calling " + path + ": " + e.getMessage(),
+                null, null, e);
+        } catch (IOException e) {
+            throw new DMZAgentServerException(
                 "network error calling " + path + ": " + e.getMessage(),
                 null, null, e);
         }
@@ -538,22 +797,22 @@ public final class ConcordexClient implements AutoCloseable {
         }
 
         switch (status) {
-            case 400 -> throw new ConcordexValidationException(
+            case 400 -> throw new DMZAgentValidationException(
                 "server rejected request to " + path + ": " + body,
                 status, body);
-            case 401 -> throw new ConcordexAuthException(
+            case 401 -> throw new DMZAgentAuthException(
                 "invalid or revoked API key",
                 status, body);
-            case 403 -> throw new ConcordexPermissionException(
+            case 403 -> throw new DMZAgentPermissionException(
                 "API key lacks required scope for this operation",
                 status, body);
         }
         if (status >= 500) {
-            throw new ConcordexServerException(
+            throw new DMZAgentServerException(
                 "server error from " + path + " (" + status + ")",
                 status, body);
         }
-        throw new ConcordexException(
+        throw new DMZAgentException(
             "unexpected status " + status + " from " + path,
             status, body);
     }

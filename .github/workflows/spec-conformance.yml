@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   conformance:
-    name: spec ${{ vars.CONCORDEX_SPEC_VERSION || '0.5.0' }}
+    name: spec ${{ vars.DMZAGENT_SPEC_VERSION || '0.5.0' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -31,13 +31,13 @@ jobs:
         uses: actions/checkout@v4
 
       # Pin the spec repo to the version this SDK declares. The
-      # pom.xml carries <concordex.spec.version>0.5.0</…>. CI reads
+      # pom.xml carries <dmzagent.spec.version>0.5.0</…>. CI reads
       # it back and uses it for the spec repo's git ref so drift
       # surfaces as a checkout failure on release branches.
       - name: Read pinned spec version
         id: spec
         run: |
-          version=$(grep -oP '(?<=<concordex.spec.version>)[^<]+' pom.xml)
+          version=$(grep -oP '(?<=<dmzagent.spec.version>)[^<]+' pom.xml)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Pinned spec version: $version"
 
@@ -57,17 +57,17 @@ jobs:
               ;;
           esac
 
-      - name: Check out concordex-sdk-spec
+      - name: Check out dmzagent-sdk-spec
         uses: actions/checkout@v4
         with:
-          repository: praeceptor-thesis/concordex-sdk-spec
+          repository: praeceptor-thesis/dmzagent-sdk-spec
           ref: ${{ steps.spec_ref.outputs.ref }}
-          path: concordex-sdk-spec
+          path: dmzagent-sdk-spec
 
       - name: Verify spec VERSION matches pin (release mode only)
         if: steps.spec_ref.outputs.mode == 'release'
         run: |
-          got=$(cat concordex-sdk-spec/VERSION | tr -d '[:space:]')
+          got=$(cat dmzagent-sdk-spec/VERSION | tr -d '[:space:]')
           want=${{ steps.spec.outputs.version }}
           if [ "$got" != "$want" ]; then
             echo "::error::spec VERSION='$got' does not match pin='$want'"
@@ -83,7 +83,7 @@ jobs:
 
       - name: Run conformance tests
         env:
-          CONCORDEX_SPEC_PATH: ${{ github.workspace }}/concordex-sdk-spec
+          DMZAGENT_SPEC_PATH: ${{ github.workspace }}/dmzagent-sdk-spec
         run: mvn -B -ntp verify
 
       - name: Publish status check
