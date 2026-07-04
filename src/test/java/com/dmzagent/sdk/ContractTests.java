@@ -404,6 +404,7 @@ class ContractTests {
                 (String) args.get("subject_id"),
                 (String) args.get("text"),
                 (String) args.get("agent_subject_id"),
+                (String) args.get("subject_type"),
                 (String) args.get("interaction_id"),
                 (List<Map<String, Object>>) args.get("subjects"),
                 (Map<String, Object>)       args.get("payload_extra"));
@@ -412,6 +413,7 @@ class ContractTests {
                 (String) args.get("subject_id"),
                 (String) args.get("tool"),
                 (Map<String, Object>) args.get("args"),
+                (String) args.get("subject_type"),
                 (String) args.get("interaction_id"),
                 (List<Map<String, Object>>) args.get("subjects"));
 
@@ -419,11 +421,13 @@ class ContractTests {
                 (String) args.get("subject_id"),
                 (String) args.get("tool"),
                 args.get("result"),
+                (String) args.get("subject_type"),
                 (String) args.get("interaction_id"),
                 (List<Map<String, Object>>) args.get("subjects"));
 
             case "observation" -> cx.observation(
                 (String) args.get("agent_subject_id"),
+                (String) args.get("subject_type"),
                 (List<Map<String, Object>>) args.get("subjects"),
                 (Map<String, Object>) args.get("payload"),
                 (String) args.get("interaction_id"));
@@ -434,6 +438,7 @@ class ContractTests {
 
             case "emit_event" -> cx.emitEvent(
                 (String) args.get("kind"),
+                (String) args.get("subject_type"),
                 (String) args.get("agent_subject_id"),
                 (Map<String, Object>) args.get("payload"),
                 (String) args.get("interaction_id"),
