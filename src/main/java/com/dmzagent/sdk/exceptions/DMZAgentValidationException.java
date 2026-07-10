@@ -2,7 +2,8 @@ package com.dmzagent.sdk.exceptions;
 
 /**
  * Raised on HTTP 400 — the server rejected the request body as
- * malformed.
+ * malformed — and HTTP 422 — the request was well-formed but
+ * unprocessable (bad event / rulebook).
  *
  * <p>Spec §3, canonical name {@code ValidationError}.
  *
@@ -10,7 +11,7 @@ package com.dmzagent.sdk.exceptions;
  * missing required field, both {@code subjectId} and
  * {@code interactionId} set on {@code check}) raises
  * {@link IllegalArgumentException}, NOT this class. This class is
- * reserved for {@code 400} responses from the server.
+ * reserved for {@code 400} / {@code 422} responses from the server.
  */
 public class DMZAgentValidationException extends DMZAgentException {
     public DMZAgentValidationException(String message, Integer statusCode, Object body) {

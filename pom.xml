@@ -7,7 +7,7 @@
 
   <groupId>com.dmzagent</groupId>
   <artifactId>dmzagent-sdk</artifactId>
-  <version>0.6.0</version>
+  <version>0.7.0</version>
   <packaging>jar</packaging>
 
   <name>DMZAgent SDK</name>
@@ -54,7 +54,7 @@
       workflow MUST fail loud if this drifts from the checked-out spec
       repo tag.
     -->
-    <dmzagent.spec.version>0.6.0</dmzagent.spec.version>
+    <dmzagent.spec.version>0.7.0</dmzagent.spec.version>
 
     <okhttp.version>4.12.0</okhttp.version>
     <jackson.version>2.17.2</jackson.version>

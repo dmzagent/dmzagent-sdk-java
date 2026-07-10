@@ -7,6 +7,7 @@ import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
 import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
 import com.dmzagent.sdk.exceptions.DMZAgentException;
 import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
+import com.dmzagent.sdk.exceptions.DMZAgentRateLimitException;
 import com.dmzagent.sdk.exceptions.DMZAgentServerException;
 import com.dmzagent.sdk.exceptions.DMZAgentValidationException;
 import okhttp3.Interceptor;
@@ -72,7 +73,7 @@ public final class DMZAgentClient implements AutoCloseable {
 
     private static final String   DEFAULT_BASE_URL = "https://api.dmzagent.com";
     private static final Duration DEFAULT_TIMEOUT  = Duration.ofMillis(10_000);
-    private static final String   DEFAULT_UA       = "dmzagent-java/0.6.0";
+    private static final String   DEFAULT_UA       = "dmzagent-java/0.7.0";
 
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
@@ -806,6 +807,13 @@ public final class DMZAgentClient implements AutoCloseable {
             case 403 -> throw new DMZAgentPermissionException(
                 "API key lacks required scope for this operation",
                 status, body);
+            case 422 -> throw new DMZAgentValidationException(
+                "server could not process request to " + path + ": " + body,
+                status, body);
+            case 429 -> throw new DMZAgentRateLimitException(
+                "rate cap reached calling " + path + ": " + body,
+                status, body,
+                parseRetryAfter(resp.header("Retry-After")));
         }
         if (status >= 500) {
             throw new DMZAgentServerException(
@@ -815,5 +823,23 @@ public final class DMZAgentClient implements AutoCloseable {
         throw new DMZAgentException(
             "unexpected status " + status + " from " + path,
             status, body);
+    }
+
+    /**
+     * Parse a {@code Retry-After} header value in delta-seconds form
+     * (spec §3). Returns {@code null} when the header is absent,
+     * non-numeric (including the HTTP-date form, which the DMZAgent
+     * API never emits), or negative. The SDK never sleeps or retries
+     * on the value — it is only surfaced on
+     * {@link DMZAgentRateLimitException#retryAfter()}.
+     */
+    static Integer parseRetryAfter(String headerValue) {
+        if (headerValue == null) return null;
+        try {
+            int seconds = Integer.parseInt(headerValue.trim());
+            return (seconds >= 0) ? seconds : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

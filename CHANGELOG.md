@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.0] — 2026-07-10
+
+Tracks `dmzagent-sdk-spec` v0.7.0 (DX-9 error taxonomy).
+
+### Added
+- `DMZAgentRateLimitException` — raised on HTTP 429 (spec §3,
+  canonical name `RateLimitError`). Exposes `retryAfter()` /
+  `getRetryAfter()`: the response's `Retry-After` header parsed as
+  delta-seconds, or `null` when the header is absent or unparseable.
+  The SDK never sleeps or retries automatically — the value is
+  surfaced for the caller's own backoff policy.
+- HTTP 422 (well-formed but unprocessable) now maps to
+  `DMZAgentValidationException`, matching the canonical
+  `ValidationError` taxonomy. Previously 422 fell through to the
+  generic `DMZAgentException`.
+- Contract-test runner understands the spec 0.7.0 error-mapping
+  fixture extensions: per-fixture response `headers` and
+  `expected_retry_after` assertions.
+
+### Changed
+- Package version bumped to `0.7.0` (minor — additive, no breaking
+  changes to the existing 0.6.0 surface). Spec pin advanced from
+  0.6.0 to 0.7.0.
+
 ## [0.6.0] — 2026-06-02
 
 ### Added

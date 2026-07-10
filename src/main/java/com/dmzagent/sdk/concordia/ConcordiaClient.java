@@ -86,7 +86,7 @@ public final class ConcordiaClient implements AutoCloseable {
     /** Production base URL. */
     public static final String DEFAULT_BASE_URL  = "https://api.dmzagent.com";
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
-    public static final String DEFAULT_USER_AGENT = "dmzagent-concordia-java/0.6.0";
+    public static final String DEFAULT_USER_AGENT = "dmzagent-concordia-java/0.7.0";
 
     private static final String MCP_PATH = "/mcp/v1";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");

@@ -7,6 +7,7 @@ import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
 import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
 import com.dmzagent.sdk.exceptions.DMZAgentException;
 import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
+import com.dmzagent.sdk.exceptions.DMZAgentRateLimitException;
 import com.dmzagent.sdk.exceptions.DMZAgentServerException;
 import com.dmzagent.sdk.exceptions.DMZAgentValidationException;
 import okhttp3.Interceptor;
@@ -144,22 +145,29 @@ class ContractTests {
         }
     }
 
-    /** Returns a fixed {@code (status, body)} response without writing
-     * to the network — used for error-mapping fixtures. */
-    private static Interceptor cannedResponse(int status, Object body) {
+    /** Returns a fixed {@code (status, headers, body)} response without
+     * writing to the network — used for error-mapping fixtures.
+     * {@code headers} may be {@code null} when a fixture carries none. */
+    private static Interceptor cannedResponse(int status, Map<String, Object> headers,
+                                              Object body) {
         return chain -> {
             Request req = chain.request();
             String json = (body instanceof String s)
                 ? "\"" + s.replace("\"", "\\\"") + "\""
                 : MAPPER.writeValueAsString(body);
-            return new Response.Builder()
+            Response.Builder builder = new Response.Builder()
                 .request(req)
                 .protocol(Protocol.HTTP_1_1)
                 .code(status)
                 .message(status >= 400 ? "Error" : "OK")
                 .body(ResponseBody.create(
-                    json, MediaType.get("application/json")))
-                .build();
+                    json, MediaType.get("application/json")));
+            if (headers != null) {
+                for (Map.Entry<String, Object> h : headers.entrySet()) {
+                    builder.header(h.getKey(), String.valueOf(h.getValue()));
+                }
+            }
+            return builder.build();
         };
     }
 
@@ -314,13 +322,15 @@ class ContractTests {
             tests.add(DynamicTest.dynamicTest("error/" + name, () -> {
                 int    status  = ((Number) f.get("status")).intValue();
                 Object body    = f.get("body");
+                Map<String, Object> headers =
+                    (Map<String, Object>) f.get("headers");
                 String method  = (String) f.get("method");
                 Map<String, Object> args = (Map<String, Object>) f.get("args");
                 String wantExc = (String) f.get("expected_exception");
 
                 try (DMZAgentClient cx = new DMZAgentClient(
                         API_KEY, "http://contract.invalid", null, null,
-                        cannedResponse(status, body))) {
+                        cannedResponse(status, headers, body))) {
 
                     if ("guard_with_raise_on_open".equals(method)) {
                         boolean raise = Boolean.TRUE.equals(args.get("raise_on_open"));
@@ -371,6 +381,20 @@ class ContractTests {
                                 assertThat(ce.statusCode())
                                     .isEqualTo(wantStatus);
                             }
+                            // `expected_retry_after` distinguishes
+                            // "key present with JSON null" (assert the
+                            // parsed value is null) from "key absent"
+                            // (no assertion).
+                            if (f.containsKey("expected_retry_after")) {
+                                Integer wantRetry =
+                                    (Integer) f.get("expected_retry_after");
+                                assertThat(ce)
+                                    .isInstanceOf(DMZAgentRateLimitException.class);
+                                assertThat(((DMZAgentRateLimitException) ce)
+                                        .getRetryAfter())
+                                    .as("retry-after for " + name)
+                                    .isEqualTo(wantRetry);
+                            }
                         });
                 }
             }));
@@ -383,6 +407,7 @@ class ContractTests {
             case "AuthError"       -> DMZAgentAuthException.class;
             case "PermissionError" -> DMZAgentPermissionException.class;
             case "ValidationError" -> DMZAgentValidationException.class;
+            case "RateLimitError"  -> DMZAgentRateLimitException.class;
             case "ServerError"     -> DMZAgentServerException.class;
             case "DMZAgentError"  -> DMZAgentException.class;
             case "CBOpenError"     -> CircuitBreakerOpenException.class;
