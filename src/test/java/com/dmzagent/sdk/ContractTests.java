@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
 import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
+import com.dmzagent.sdk.exceptions.DMZAgentConflictException;
 import com.dmzagent.sdk.exceptions.DMZAgentException;
 import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
 import com.dmzagent.sdk.exceptions.DMZAgentRateLimitException;
@@ -409,6 +410,7 @@ class ContractTests {
             case "ValidationError" -> DMZAgentValidationException.class;
             case "ServerError"     -> DMZAgentServerException.class;
             case "RateLimitError"  -> DMZAgentRateLimitException.class;
+            case "ConflictError"   -> DMZAgentConflictException.class;
             case "DMZAgentError"  -> DMZAgentException.class;
             case "CBOpenError"     -> CircuitBreakerOpenException.class;
             default -> throw new IllegalArgumentException(
