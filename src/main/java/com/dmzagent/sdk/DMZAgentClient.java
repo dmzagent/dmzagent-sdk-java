@@ -171,6 +171,18 @@ public final class DMZAgentClient implements AutoCloseable {
      * {@code null} optional parameters are simply omitted from the
      * outgoing JSON.
      */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult emitEvent(
         String              kind,
         String              agentSubjectId,
@@ -276,6 +288,18 @@ public final class DMZAgentClient implements AutoCloseable {
 
     /** Full {@code subjectSays} with optional interaction stitching,
      * subject roster, and per-event payload extras. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult subjectSays(
         String                    subjectId,
         String                    text,
@@ -330,6 +354,18 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     /** Full {@code toolCall} with interaction stitching and roster. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult toolCall(
         String                    subjectId,
         String                    tool,
@@ -375,6 +411,18 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     /** Full {@code toolResult} with interaction stitching and roster. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult toolResult(
         String                    subjectId,
         String                    tool,
@@ -425,6 +473,18 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     /** Full {@code observation} with interaction stitching. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult observation(
         String                    agentSubjectId,
         List<Map<String, Object>> subjects,

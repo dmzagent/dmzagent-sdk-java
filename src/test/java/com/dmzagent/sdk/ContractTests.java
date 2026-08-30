@@ -426,11 +426,18 @@ class ContractTests {
     @SuppressWarnings("unchecked")
     private static void callMethod(DMZAgentClient cx, String method,
                                    Map<String, Object> args) {
+        // subject_type is REQUIRED by spec §5.2-5.5. The runner used to call
+        // the short overloads that omit it, which silently substitute
+        // "sensor" — and every fixture happened to use "sensor", so the
+        // substitution was invisible. Always pass the fixture's value
+        // through the explicit overloads so the corpus actually controls it.
+        String subjectType = (String) args.get("subject_type");
         switch (method) {
             case "subject_says" -> cx.subjectSays(
                 (String) args.get("subject_id"),
                 (String) args.get("text"),
                 (String) args.get("agent_subject_id"),
+                subjectType,
                 (String) args.get("interaction_id"),
                 (List<Map<String, Object>>) args.get("subjects"),
                 (Map<String, Object>)       args.get("payload_extra"));
@@ -439,6 +446,7 @@ class ContractTests {
                 (String) args.get("subject_id"),
                 (String) args.get("tool"),
                 (Map<String, Object>) args.get("args"),
+                subjectType,
                 (String) args.get("interaction_id"),
                 (List<Map<String, Object>>) args.get("subjects"));
 
@@ -446,11 +454,13 @@ class ContractTests {
                 (String) args.get("subject_id"),
                 (String) args.get("tool"),
                 args.get("result"),
+                subjectType,
                 (String) args.get("interaction_id"),
                 (List<Map<String, Object>>) args.get("subjects"));
 
             case "observation" -> cx.observation(
                 (String) args.get("agent_subject_id"),
+                subjectType,
                 (List<Map<String, Object>>) args.get("subjects"),
                 (Map<String, Object>) args.get("payload"),
                 (String) args.get("interaction_id"));
