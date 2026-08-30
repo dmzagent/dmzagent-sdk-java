@@ -23,7 +23,14 @@ concurrency:
 
 jobs:
   conformance:
-    name: spec ${{ vars.DMZAGENT_SPEC_VERSION || '0.5.0' }}
+    # A fixed name. This was `spec ${{ vars.DMZAGENT_SPEC_VERSION || '0.5.0' }}`
+    # — a repo variable with a hardcoded fallback that read 0.5.0 while
+    # pom.xml carried 0.6.0, so the job advertised a version it was not
+    # testing against. The version that matters is published separately, as
+    # the `spec-conformance/<version>` commit status below, and that one is
+    # derived from the pin. A job name that also tries to carry the version
+    # is a second copy that can go stale, which is what happened.
+    name: spec conformance
     runs-on: ubuntu-latest
 
     steps:
@@ -31,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
 
       # Pin the spec repo to the version this SDK declares. The
-      # pom.xml carries <dmzagent.spec.version>0.5.0</…>. CI reads
+      # pom.xml carries <dmzagent.spec.version>. CI reads
       # it back and uses it for the spec repo's git ref so drift
       # surfaces as a checkout failure on release branches.
       - name: Read pinned spec version
@@ -60,7 +67,7 @@ jobs:
       - name: Check out dmzagent-sdk-spec
         uses: actions/checkout@v4
         with:
-          repository: praeceptor-thesis/dmzagent-sdk-spec
+          repository: dmzagent/dmzagent-sdk-spec
           ref: ${{ steps.spec_ref.outputs.ref }}
           path: dmzagent-sdk-spec
 

@@ -25,12 +25,19 @@ import java.util.Optional;
  * as a {@code Map<String, Object>} for callers who want to read fields
  * this SDK version doesn't surface explicitly yet.
  *
- * <p>This record is immutable per spec §7.3.
+ * <p>This record is immutable per spec §7.10.
  */
 public record EmitResult(
     @JsonProperty("interaction_id")    String interactionId,
     @JsonProperty("subjects")          List<String> subjects,
     @JsonProperty("queued")            boolean queued,
+    /** True when the frame was stored and enqueued (spec §7.1). Not
+     *  "reasoning finished" — see §1.6. Was reachable only through
+     *  {@code raw()} before 0.8.0. */
+    @JsonProperty("accepted")          Optional<Boolean> accepted,
+    /** Number of workspaces the frame fanned out to (spec §7.1). Also
+     *  previously reachable only through {@code raw()}. */
+    @JsonProperty("n_workspaces")      Optional<Integer> nWorkspaces,
     @JsonProperty("frame_id")          Optional<String> frameId,
     @JsonProperty("subject_id")        Optional<String> subjectId,
     @JsonProperty("outcome")           Optional<String> outcome,
@@ -40,6 +47,13 @@ public record EmitResult(
     @JsonProperty("soul_version")      Optional<Integer> soulVersion,
     @JsonProperty("ledger_index")      Optional<Long> ledgerIndex,
     @JsonProperty("follow_my_data")    Optional<String> followMyData,
+    /** {@code true} for a live key, {@code false} for a test key
+     *  ({@code ck_test_…}), empty when the server omitted it (spec §1.2,
+     *  §2.1). Empty rather than {@code false}: {@code false} is the
+     *  positive claim "this is test data", and asserting that about a
+     *  response that never carried the field is the confusion this signal
+     *  exists to prevent. */
+    @JsonProperty("livemode")          Optional<Boolean> livemode,
     Map<String, Object>                raw
 ) {
 
@@ -55,6 +69,10 @@ public record EmitResult(
             (String) data.getOrDefault("interaction_id", ""),
             (List<String>) data.getOrDefault("subjects", List.of()),
             ((Boolean) data.getOrDefault("queued", false)),
+            Optional.ofNullable(data.get("accepted"))
+                    .map(v -> v instanceof Boolean b ? b : null),
+            Optional.ofNullable(data.get("n_workspaces"))
+                    .map(v -> v instanceof Number n ? n.intValue() : null),
             Optional.ofNullable((String) data.get("frame_id")),
             Optional.ofNullable((String) data.get("subject_id")),
             Optional.ofNullable((String) data.get("outcome")),
@@ -68,6 +86,8 @@ public record EmitResult(
             Optional.ofNullable(data.get("ledger_index"))
                     .map(v -> v instanceof Number n ? n.longValue() : null),
             Optional.ofNullable((String) data.get("follow_my_data")),
+            Optional.ofNullable(data.get("livemode"))
+                    .map(v -> v instanceof Boolean b ? b : null),
             data
         );
     }

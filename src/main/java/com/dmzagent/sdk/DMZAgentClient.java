@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
 import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
+import com.dmzagent.sdk.exceptions.DMZAgentConflictException;
 import com.dmzagent.sdk.exceptions.DMZAgentException;
 import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
+import com.dmzagent.sdk.exceptions.DMZAgentRateLimitException;
 import com.dmzagent.sdk.exceptions.DMZAgentServerException;
 import com.dmzagent.sdk.exceptions.DMZAgentValidationException;
 import okhttp3.Interceptor;
@@ -169,6 +171,18 @@ public final class DMZAgentClient implements AutoCloseable {
      * {@code null} optional parameters are simply omitted from the
      * outgoing JSON.
      */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult emitEvent(
         String              kind,
         String              agentSubjectId,
@@ -199,6 +213,38 @@ public final class DMZAgentClient implements AutoCloseable {
         String              occurredAt,
         Map<String, Object> metadata
     ) {
+        return emitEvent(kind, subjectType, agentSubjectId, payload, interactionId,
+                         interactionKind, subjects, speakerSubjectId, speakerRole,
+                         occurredAt, metadata, null);
+    }
+
+    /**
+     * As {@link #emitEvent(String, String, String, Map, String, String, List,
+     * String, String, String, Map)}, with a caller-generated
+     * {@code Idempotency-Key} (spec §1.8).
+     *
+     * <p>Overload rather than an extra parameter on the existing method so
+     * callers compiled against 0.7.0 keep working.
+     *
+     * @param idempotencyKey the key, or {@code null} for none. Supply your
+     *        own: the SDK never invents one, because a key minted per call
+     *        deduplicates nothing and a key derived from the payload would
+     *        collapse two genuinely distinct but identical events.
+     */
+    public EmitResult emitEvent(
+        String              kind,
+        String              subjectType,
+        String              agentSubjectId,
+        Map<String, Object> payload,
+        String              interactionId,
+        String              interactionKind,
+        List<Map<String, Object>> subjects,
+        String              speakerSubjectId,
+        String              speakerRole,
+        String              occurredAt,
+        Map<String, Object> metadata,
+        String              idempotencyKey
+    ) {
         if (!EventKinds.ALL.contains(kind)) {
             throw new IllegalArgumentException(
                 "kind must be one of " + EventKinds.ALL + ", got '" + kind + "'");
@@ -224,7 +270,7 @@ public final class DMZAgentClient implements AutoCloseable {
         if (occurredAt       != null && !occurredAt.isEmpty())       body.put("occurred_at",        occurredAt);
         if (metadata         != null && !metadata.isEmpty())         body.put("metadata",           metadata);
 
-        Map<String, Object> data = postJson("/v1/agent-stream/event", body);
+        Map<String, Object> data = postJson("/v1/agent-stream/event", body, idempotencyKey);
         return EmitResult.fromResponse(data);
     }
 
@@ -242,6 +288,18 @@ public final class DMZAgentClient implements AutoCloseable {
 
     /** Full {@code subjectSays} with optional interaction stitching,
      * subject roster, and per-event payload extras. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult subjectSays(
         String                    subjectId,
         String                    text,
@@ -296,6 +354,18 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     /** Full {@code toolCall} with interaction stitching and roster. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult toolCall(
         String                    subjectId,
         String                    tool,
@@ -341,6 +411,18 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     /** Full {@code toolResult} with interaction stitching and roster. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult toolResult(
         String                    subjectId,
         String                    tool,
@@ -391,6 +473,18 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     /** Full {@code observation} with interaction stitching. */
+    /**
+     * @deprecated Substitutes {@code subject_type = "sensor"}, which the
+     * caller did not choose. Spec §5.2–§5.5 make {@code subject_type}
+     * REQUIRED, and it is not cosmetic: traces are grouped by the subject's
+     * type (§C.1), so a chat utterance recorded as a sensor reading is
+     * routed into the wrong trace and reasoned under the wrong pattern.
+     *
+     * <p>Use the overload that takes {@code subjectType} explicitly. This
+     * one is kept only so existing callers still compile, and will be
+     * removed in the next MAJOR.
+     */
+    @Deprecated(since = "0.8.0", forRemoval = true)
     public EmitResult observation(
         String                    agentSubjectId,
         List<Map<String, Object>> subjects,
@@ -555,6 +649,33 @@ public final class DMZAgentClient implements AutoCloseable {
         String              occurredAt,
         Map<String, Object> metadata
     ) {
+        return capture(subjectId, kind, subjectType, payload, agentSubjectId,
+                       interactionId, interactionKind, subjects, speakerSubjectId,
+                       speakerRole, occurredAt, metadata, null);
+    }
+
+    /**
+     * As the 12-argument overload, with a caller-generated
+     * {@code Idempotency-Key} (spec §1.8). See
+     * {@link #emitEvent(String, String, String, Map, String, String, List,
+     * String, String, String, Map, String)} for why the key is never
+     * generated by the SDK.
+     */
+    public CaptureResult capture(
+        String              subjectId,
+        String              kind,
+        String              subjectType,
+        Map<String, Object> payload,
+        String              agentSubjectId,
+        String              interactionId,
+        String              interactionKind,
+        List<Map<String, Object>> subjects,
+        String              speakerSubjectId,
+        String              speakerRole,
+        String              occurredAt,
+        Map<String, Object> metadata,
+        String              idempotencyKey
+    ) {
         if (kind == null || !EventKinds.ALL.contains(kind)) {
             throw new IllegalArgumentException(
                 "kind must be one of " + EventKinds.ALL + ", got '" + kind + "'");
@@ -581,7 +702,7 @@ public final class DMZAgentClient implements AutoCloseable {
         if (occurredAt != null && !occurredAt.isEmpty()) body.put("occurred_at", occurredAt);
         if (metadata != null && !metadata.isEmpty()) body.put("metadata", metadata);
 
-        Map<String, Object> data = postJson("/v1/agent-stream/event", body);
+        Map<String, Object> data = postJson("/v1/agent-stream/event", body, idempotencyKey);
         return CaptureResult.fromResponse(data);
     }
 
@@ -672,6 +793,19 @@ public final class DMZAgentClient implements AutoCloseable {
     // ===================================================================== //
 
     private Map<String, Object> postJson(String path, Map<String, Object> body) {
+        return postJson(path, body, null);
+    }
+
+    /**
+     * @param idempotencyKey caller-generated key making a retry of this
+     *        request safe (spec §1.8), or {@code null} for none. The SDK
+     *        never generates one: a key minted per call is unique per call
+     *        and deduplicates nothing, and a key derived from the payload
+     *        would collapse two genuinely distinct but identical events.
+     */
+    private Map<String, Object> postJson(
+        String path, Map<String, Object> body, String idempotencyKey
+    ) {
         String url = baseUrl + path;
         String json;
         try {
@@ -684,13 +818,16 @@ public final class DMZAgentClient implements AutoCloseable {
                 "could not serialize request body to JSON: " + e.getMessage(), e);
         }
 
-        Request req = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
             .url(url)
             .post(RequestBody.create(json, JSON_MEDIA))
             .header("Authorization", "Bearer " + apiKey)
             .header("Content-Type",  "application/json")
-            .header("User-Agent",    userAgent)
-            .build();
+            .header("User-Agent",    userAgent);
+        if (idempotencyKey != null && !idempotencyKey.isEmpty()) {
+            builder.header("Idempotency-Key", idempotencyKey);
+        }
+        Request req = builder.build();
 
         try (Response resp = http.newCall(req).execute()) {
             return handle(resp, path);
@@ -771,6 +908,25 @@ public final class DMZAgentClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Seconds from a {@code Retry-After} header, or {@code null}.
+     *
+     * <p>Only the delta-seconds form is understood. RFC 9110 also permits an
+     * HTTP-date, and a caller handed a wrong number is worse off than one
+     * handed {@code null}, so anything non-numeric returns {@code null} rather
+     * than guessing. The corpus carries a vector for the header-absent case,
+     * which lands here too.
+     */
+    private static Integer parseRetryAfter(String raw) {
+        if (raw == null) return null;
+        try {
+            int seconds = Integer.parseInt(raw.trim());
+            return seconds >= 0 ? seconds : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private Map<String, Object> handle(Response resp, String path) throws IOException {
         int status = resp.code();
         ResponseBody rb = resp.body();
@@ -797,9 +953,22 @@ public final class DMZAgentClient implements AutoCloseable {
         }
 
         switch (status) {
-            case 400 -> throw new DMZAgentValidationException(
+            // 400 and 422 both mean "fix the request" — malformed vs
+            // parsed-but-rejected. The spec taxonomy maps both here;
+            // statusCode tells them apart for callers that care.
+            case 400, 422 -> throw new DMZAgentValidationException(
                 "server rejected request to " + path + ": " + body,
                 status, body);
+            // 409 is the Idempotency-Key in-flight conflict (spec §1.8).
+            // Kept off the 5xx branch below: the duplicate is the caller's
+            // own earlier request, so retrying the same key replays its
+            // stored response instead of causing a second side effect.
+            case 409 -> throw new DMZAgentConflictException(
+                "a request with this Idempotency-Key is already in flight on " + path,
+                status, body);
+            case 429 -> throw new DMZAgentRateLimitException(
+                "rate limited on " + path,
+                status, body, parseRetryAfter(resp.header("Retry-After")));
             case 401 -> throw new DMZAgentAuthException(
                 "invalid or revoked API key",
                 status, body);

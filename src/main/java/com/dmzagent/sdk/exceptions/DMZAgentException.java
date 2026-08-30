@@ -12,7 +12,8 @@ package com.dmzagent.sdk.exceptions;
  *   DMZAgentException                       base
  *     ├── DMZAgentAuthException             API key invalid / revoked
  *     ├── DMZAgentPermissionException       API key lacks scope
- *     ├── DMZAgentValidationException       server rejected payload (400)
+ *     ├── DMZAgentValidationException       server rejected payload (400/422)
+ *     ├── DMZAgentRateLimitException        429; carries retryAfter when sent
  *     ├── DMZAgentServerException           5xx / network / timeout
  *     └── CircuitBreakerOpenException        cb.check() returned open
  * </pre>

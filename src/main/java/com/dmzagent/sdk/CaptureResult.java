@@ -3,6 +3,7 @@ package com.dmzagent.sdk;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public record CaptureResult(
     @JsonProperty("frame_id")         String frameId,
@@ -11,6 +12,8 @@ public record CaptureResult(
     @JsonProperty("interaction_id")   String interactionId,
     @JsonProperty("subjects")         List<String> subjects,
     @JsonProperty("follow_my_data")   String followMyData,
+    /** See {@link EmitResult#livemode()} (spec §1.2, §2.1). */
+    @JsonProperty("livemode")         Optional<Boolean> livemode,
     Map<String, Object>               raw
 ) {
     @SuppressWarnings("unchecked")
@@ -23,6 +26,8 @@ public record CaptureResult(
             (String) data.getOrDefault("interaction_id", ""),
             (List<String>) data.getOrDefault("subjects", List.of()),
             (String) data.get("follow_my_data"),
+            Optional.ofNullable(data.get("livemode"))
+                    .map(v -> v instanceof Boolean b ? b : null),
             data
         );
     }
