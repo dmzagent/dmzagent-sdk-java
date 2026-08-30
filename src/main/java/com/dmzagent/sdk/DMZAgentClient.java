@@ -7,6 +7,7 @@ import com.dmzagent.sdk.exceptions.CircuitBreakerOpenException;
 import com.dmzagent.sdk.exceptions.DMZAgentAuthException;
 import com.dmzagent.sdk.exceptions.DMZAgentException;
 import com.dmzagent.sdk.exceptions.DMZAgentPermissionException;
+import com.dmzagent.sdk.exceptions.DMZAgentRateLimitException;
 import com.dmzagent.sdk.exceptions.DMZAgentServerException;
 import com.dmzagent.sdk.exceptions.DMZAgentValidationException;
 import okhttp3.Interceptor;
@@ -771,6 +772,25 @@ public final class DMZAgentClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Seconds from a {@code Retry-After} header, or {@code null}.
+     *
+     * <p>Only the delta-seconds form is understood. RFC 9110 also permits an
+     * HTTP-date, and a caller handed a wrong number is worse off than one
+     * handed {@code null}, so anything non-numeric returns {@code null} rather
+     * than guessing. The corpus carries a vector for the header-absent case,
+     * which lands here too.
+     */
+    private static Integer parseRetryAfter(String raw) {
+        if (raw == null) return null;
+        try {
+            int seconds = Integer.parseInt(raw.trim());
+            return seconds >= 0 ? seconds : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private Map<String, Object> handle(Response resp, String path) throws IOException {
         int status = resp.code();
         ResponseBody rb = resp.body();
@@ -797,9 +817,15 @@ public final class DMZAgentClient implements AutoCloseable {
         }
 
         switch (status) {
-            case 400 -> throw new DMZAgentValidationException(
+            // 400 and 422 both mean "fix the request" — malformed vs
+            // parsed-but-rejected. The spec taxonomy maps both here;
+            // statusCode tells them apart for callers that care.
+            case 400, 422 -> throw new DMZAgentValidationException(
                 "server rejected request to " + path + ": " + body,
                 status, body);
+            case 429 -> throw new DMZAgentRateLimitException(
+                "rate limited on " + path,
+                status, body, parseRetryAfter(resp.header("Retry-After")));
             case 401 -> throw new DMZAgentAuthException(
                 "invalid or revoked API key",
                 status, body);
