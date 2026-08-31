@@ -74,15 +74,7 @@ public final class DMZAgentClient implements AutoCloseable {
 
     private static final String   DEFAULT_BASE_URL = "https://api.dmzagent.com";
     private static final Duration DEFAULT_TIMEOUT  = Duration.ofMillis(10_000);
-    /**
-     * The spec version this SDK implements. MUST match
-     * {@code <dmzagent.spec.version>} in {@code pom.xml} (spec §12.1);
-     * {@code VersionMarkerTest} holds them together. It read 0.6.0 here
-     * while the pom read 0.8.0, and this is the one a server sees.
-     */
-    public static final String SPEC_VERSION = "0.9.0";
-
-    private static final String   DEFAULT_UA       = "dmzagent-java/" + SPEC_VERSION;
+    private static final String   DEFAULT_UA       = "dmzagent-java/" + SpecVersion.VALUE;
 
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
@@ -815,6 +807,20 @@ public final class DMZAgentClient implements AutoCloseable {
         return awaitOutcome(frameId, 30.0);
     }
 
+    /**
+     * Poll the frame story endpoint until reasoning completes
+     * (sdk-spec.md §5.10).
+     *
+     * <p>Terminates on {@code summary.complete} — every workspace the frame
+     * fanned out to has reported, matching the {@code n_workspaces} on the
+     * ingest ack. This previously returned the first response that parsed,
+     * which is a half-finished story: the endpoint answers 200 all the way
+     * through the fan-out, handing back traces as each workspace finishes.
+     *
+     * <p>No {@code workspace_id} is sent. The story endpoint is
+     * division-scoped; naming a workspace narrows the result to 1 of N
+     * perspectives and makes completeness mean "that workspace finished".
+     */
     public OutcomeResult awaitOutcome(String frameId, double timeoutSeconds) {
         timeoutSeconds = Math.min(timeoutSeconds, 120.0);
         long start = System.currentTimeMillis();
@@ -832,7 +838,8 @@ public final class DMZAgentClient implements AutoCloseable {
             }
             try {
                 Map<String, Object> data = getJson(path);
-                return OutcomeResult.fromResponse(data);
+                OutcomeResult result = OutcomeResult.fromResponse(data);
+                if (result.complete()) return result;
             } catch (DMZAgentValidationException | DMZAgentAuthException | DMZAgentPermissionException e) {
                 throw e;
             } catch (Exception e) {

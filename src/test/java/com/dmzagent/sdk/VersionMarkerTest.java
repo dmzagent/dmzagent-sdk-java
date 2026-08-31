@@ -12,14 +12,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The spec version is written down in two places; they have to agree.
+ * The pinned spec version reaches the wire.
  *
- * <p>Found while adding the state cache: the default User-Agent read
- * {@code dmzagent-java/0.6.0} while {@code pom.xml}'s
- * {@code <dmzagent.spec.version>} read {@code 0.8.0}. The User-Agent is
- * the one a server actually sees, so the version reported on every
- * request and the version declared to the spec repo had drifted apart
- * with nothing to notice.
+ * <p>{@link SpecVersion} already removes the drift at the source: the
+ * value is filtered from {@code <dmzagent.spec.version>} at build time,
+ * so there is one copy rather than a constant free to wander from the
+ * pom. What nothing asserted is the last hop — that the User-Agent a
+ * server actually receives carries that value. The three releases of
+ * {@code dmzagent-java/0.6.0} sent against a 0.8.x spec were visible
+ * only there.
  */
 final class VersionMarkerTest {
 
@@ -35,13 +36,14 @@ final class VersionMarkerTest {
     }
 
     @Test
-    void theSpecVersionConstantMatchesTheManifestPin() throws IOException {
-        assertEquals(pinnedSpecVersion(), DMZAgentClient.SPEC_VERSION);
+    void theFilteredResourceMatchesTheManifestPin() throws IOException {
+        // Guards the filtering itself: a build that stopped substituting the
+        // property would leave SpecVersion holding a literal placeholder.
+        assertEquals(pinnedSpecVersion(), SpecVersion.VALUE);
     }
 
     @Test
     void theDefaultUserAgentCarriesThePinnedVersion() throws IOException {
-        // The marker a server actually sees.
         StringBuilder seen = new StringBuilder();
         try (DMZAgentClient cx = new DMZAgentClient(
                 "ck_test_x", null, null, null,

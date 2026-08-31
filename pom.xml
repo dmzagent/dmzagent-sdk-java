@@ -120,6 +120,17 @@
   </distributionManagement>
 
   <build>
+    <!-- Filtered so the User-Agent cannot drift from the pinned spec
+         version. It had: DEFAULT_UA read `dmzagent-java/0.6.0` while the
+         pom pinned 0.8.0, and nothing asserted the two agreed, so §1.4's
+         version signal was wrong for three releases. -->
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
+
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
