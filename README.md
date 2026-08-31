@@ -1,7 +1,7 @@
 # DMZAgent SDK — Java
 
 [![Maven Central](https://img.shields.io/maven-central/v/com.dmzagent/dmzagent-sdk.svg)](https://search.maven.org/artifact/com.dmzagent/dmzagent-sdk)
-[![spec](https://img.shields.io/badge/spec-0.5.0-blue)](https://github.com/dmzagent/dmzagent-sdk-spec/tree/v0.5.0)
+[![spec](https://img.shields.io/badge/spec-0.9.0-blue)](https://github.com/dmzagent/dmzagent-sdk-spec/tree/v0.9.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Official Java SDK for [DMZAgent](https://dmzagent.com) — emit
@@ -13,7 +13,9 @@ The surface is defined by the language-agnostic
 and is identical across the Python, TypeScript, C#, and Java SDKs —
 same constructor shape, same methods (under each language's
 idiomatic naming), same return types, same error hierarchy, same
-wire protocol. This SDK pins to **spec version 0.5.0**.
+wire protocol. This SDK pins to **spec version 0.9.0** — the value in
+`pom.xml`'s `<dmzagent.spec.version>`, which `VersionMarkerTest` holds
+the User-Agent to.
 
 ---
 
@@ -242,7 +244,10 @@ Every constructor parameter has a documented default:
 | `apiKey`    | (required — must start `ck_`)    |
 | `baseUrl`   | `https://api.dmzagent.com`      |
 | `timeout`   | `Duration.ofMillis(10_000)`      |
-| `userAgent` | `dmzagent-java/0.5.0`           |
+| `userAgent` | `dmzagent-java/<spec version>`   |
+| `cbCacheTtl` | `null` (state cache off)        |
+| `cbCacheMaxEntries` | `1024`                   |
+| `cbCacheOnError` | `CbCacheOnError.RAISE`      |
 
 For staging or self-hosted:
 
@@ -253,6 +258,41 @@ var cx = new DMZAgentClient(
     Duration.ofSeconds(30),
     "my-app/1.2.3");
 ```
+
+### Circuit-breaker state cache
+
+`check()` is a network round trip, and it usually sits in front of the
+sensitive action. A per-client cache removes it for repeated checks on
+the same subject. It is off unless you pass a TTL:
+
+```java
+var cx = new DMZAgentClient(
+    "ck_…", null, null, null, null,
+    Duration.ofSeconds(5),          // cbCacheTtl — null or ZERO is off
+    1024,                           // cbCacheMaxEntries, LRU evicted
+    CbCacheOnError.LAST_KNOWN);     // or RAISE (default)
+
+CheckResult r = cx.check("user:ws:bot");
+r.cached();     // served from memory?
+r.cacheAge();   // how old it was
+r.stale();      // served because the check itself failed
+
+cx.check("user:ws:bot", null, true);   // fresh — skip the cache, refresh it
+```
+
+Read the TTL as **the longest a newly-opened breaker can go unnoticed by
+this client**. A cached `closed` is an allow the server might no longer
+give, which is why the cache is opt-in and why every result says whether
+it came from memory and how old it was.
+
+One TTL covers every state. Holding a deny longer than an allow is a
+safety policy, and it is yours to make with the number you pass.
+
+`CbCacheOnError.LAST_KNOWN` serves the last state for that subject —
+marked `stale()` — when the check cannot reach the server. With no entry
+for that subject it throws, and it needs a TTL above zero to be set at
+all. A `429` is not covered: that is the server answering, and it carries
+a `retryAfter` worth acting on.
 
 ---
 
@@ -276,7 +316,7 @@ calls from a single `DMZAgentClient` instance.
 
 This SDK follows the language-agnostic spec at
 [dmzagent-sdk-spec](https://github.com/dmzagent/dmzagent-sdk-spec).
-A spec tag `v0.5.0` corresponds 1:1 to release tags in this and
+A spec tag `v0.9.0` corresponds 1:1 to release tags in this and
 every other DMZAgent SDK repo. No SDK ships a version the spec
 hasn't blessed.
 

@@ -74,7 +74,15 @@ public final class DMZAgentClient implements AutoCloseable {
 
     private static final String   DEFAULT_BASE_URL = "https://api.dmzagent.com";
     private static final Duration DEFAULT_TIMEOUT  = Duration.ofMillis(10_000);
-    private static final String   DEFAULT_UA       = "dmzagent-java/0.6.0";
+    /**
+     * The spec version this SDK implements. MUST match
+     * {@code <dmzagent.spec.version>} in {@code pom.xml} (spec §12.1);
+     * {@code VersionMarkerTest} holds them together. It read 0.6.0 here
+     * while the pom read 0.8.0, and this is the one a server sees.
+     */
+    public static final String SPEC_VERSION = "0.9.0";
+
+    private static final String   DEFAULT_UA       = "dmzagent-java/" + SPEC_VERSION;
 
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
@@ -84,6 +92,8 @@ public final class DMZAgentClient implements AutoCloseable {
     private final String       apiKey;
     private final String       baseUrl;
     private final String       userAgent;
+    private final CBStateCache   cbCache;
+    private final CbCacheOnError cbCacheOnError;
     private boolean closed = false;
 
     static final Set<String> VALID_SUBJECT_TYPES = Set.of("chat", "sensor", "lead", "ticket", "journey");
@@ -126,10 +136,53 @@ public final class DMZAgentClient implements AutoCloseable {
         String      userAgent,
         Interceptor testInterceptor
     ) {
+        this(apiKey, baseUrl, timeout, userAgent, testInterceptor,
+             null, CBStateCache.DEFAULT_MAX_ENTRIES, CbCacheOnError.RAISE);
+    }
+
+    /**
+     * Full constructor, adding the circuit-breaker state cache (spec §4.4).
+     *
+     * <p>{@code cbCacheTtl} turns the cache on; {@code null} or a
+     * non-positive duration leaves it off, which is the default.
+     *
+     * <p>Read the TTL as <b>the longest a newly-opened breaker can go
+     * unnoticed by this client</b>. A cached {@code closed} is an allow
+     * the server might no longer give, so the number is a risk you are
+     * choosing. Every cached result carries {@link CheckResult#cached()}
+     * and {@link CheckResult#cacheAge()} so a caller can see what it read.
+     *
+     * @param cbCacheTtl        cache lifetime; {@code null} or {@code ZERO} is off.
+     * @param cbCacheMaxEntries bound on the cache; least-recently-used evicted.
+     * @param cbCacheOnError    what a failed check does — see {@link CbCacheOnError}.
+     */
+    public DMZAgentClient(
+        String         apiKey,
+        String         baseUrl,
+        Duration       timeout,
+        String         userAgent,
+        Interceptor    testInterceptor,
+        Duration       cbCacheTtl,
+        int            cbCacheMaxEntries,
+        CbCacheOnError cbCacheOnError
+    ) {
         if (apiKey == null || apiKey.isEmpty() || !apiKey.startsWith("ck_")) {
             throw new IllegalArgumentException(
                 "apiKey must start with 'ck_' — get one from your tenant_admin");
         }
+        CbCacheOnError onError =
+            (cbCacheOnError != null) ? cbCacheOnError : CbCacheOnError.RAISE;
+        boolean ttlSet = cbCacheTtl != null
+            && !cbCacheTtl.isNegative() && !cbCacheTtl.isZero();
+        if (onError == CbCacheOnError.LAST_KNOWN && !ttlSet) {
+            // There is nothing to fall back TO until the caller has opted
+            // into the cache. Accepting this pair would leave someone
+            // believing they had an outage story that can never fire.
+            throw new IllegalArgumentException(
+                "cbCacheOnError LAST_KNOWN needs a cbCacheTtl above zero");
+        }
+        this.cbCache        = new CBStateCache(cbCacheTtl, cbCacheMaxEntries);
+        this.cbCacheOnError = onError;
         this.apiKey    = apiKey;
         this.baseUrl   = stripTrailingSlash(
             baseUrl != null ? baseUrl : DEFAULT_BASE_URL);
@@ -531,23 +584,61 @@ public final class DMZAgentClient implements AutoCloseable {
      * was supplied.
      */
     public CheckResult check(String subjectId, String interactionId) {
+        return check(subjectId, interactionId, false);
+    }
+
+    /**
+     * As {@link #check(String, String)}, with {@code fresh = true}
+     * bypassing the state cache (spec §4.4) and refreshing it. With the
+     * cache off — the default — {@code fresh} does nothing.
+     */
+    public CheckResult check(String subjectId, String interactionId, boolean fresh) {
         boolean hasSubject     = subjectId != null && !subjectId.isEmpty();
         boolean hasInteraction = interactionId != null && !interactionId.isEmpty();
         if (hasSubject == hasInteraction) {
             throw new IllegalArgumentException(
                 "pass exactly one of subjectId or interactionId");
         }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("scope",     hasSubject ? "subject" : "interaction");
-        body.put("scope_ref", hasSubject ? subjectId : interactionId);
+        String scope    = hasSubject ? "subject" : "interaction";
+        String scopeRef = hasSubject ? subjectId : interactionId;
+        String cacheKey = CBStateCache.key(scope, scopeRef);
 
-        Map<String, Object> data = postJson("/v1/cb/check", body);
-        return CheckResult.fromResponse(data);
+        if (!fresh) {
+            CBStateCache.Hit hit = cbCache.get(cacheKey);
+            if (hit != null) {
+                return hit.result().asCached(hit.age(), false);
+            }
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("scope",     scope);
+        body.put("scope_ref", scopeRef);
+
+        Map<String, Object> data;
+        try {
+            data = postJson("/v1/cb/check", body);
+        } catch (DMZAgentServerException e) {
+            // Network, timeout, or 5xx — the server could not answer.
+            // Deliberately NOT the rate-limit exception: a 429 is an
+            // answer, and it carries a retryAfter the caller can act on.
+            // Hiding it behind a cached state would drop that signal.
+            if (cbCacheOnError == CbCacheOnError.LAST_KNOWN) {
+                CBStateCache.Hit fallback = cbCache.getAny(cacheKey);
+                if (fallback != null) {
+                    return fallback.result().asCached(fallback.age(), true);
+                }
+            }
+            throw e;
+        }
+
+        CheckResult result = CheckResult.fromResponse(data);
+        cbCache.put(cacheKey, result);
+        return result;
     }
 
     /** Convenience: check by subject only. */
     public CheckResult check(String subjectId) {
-        return check(subjectId, null);
+        return check(subjectId, null, false);
     }
 
     // ===================================================================== //
@@ -583,7 +674,17 @@ public final class DMZAgentClient implements AutoCloseable {
      *                      when {@code result.allow() == false}.
      */
     public Guard guard(String subjectId, String interactionId, boolean raiseOnOpen) {
-        CheckResult r = check(subjectId, interactionId);
+        return guard(subjectId, interactionId, raiseOnOpen, false);
+    }
+
+    /**
+     * As {@link #guard(String, String, boolean)}, with {@code fresh}
+     * passed through to {@link #check(String, String, boolean)}.
+     */
+    public Guard guard(
+            String subjectId, String interactionId,
+            boolean raiseOnOpen, boolean fresh) {
+        CheckResult r = check(subjectId, interactionId, fresh);
         if (raiseOnOpen && !r.allow()) {
             String scopeRef =
                 (subjectId     != null && !subjectId.isEmpty())     ? subjectId     :
