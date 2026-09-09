@@ -212,6 +212,100 @@ digest mismatch) — it does **not** throw on bad input.
 
 ---
 
+## Human-in-the-loop approvals
+
+A circuit-breaker policy can fire with action `require_approval`, which
+**holds** the action instead of refusing it. `check()` then hands back a
+denial that names what it is waiting on:
+
+```java
+CheckResult g = cx.check("subject:dv:checkout-bot");
+
+if (g.awaitingApproval()) {
+    showMyOwnApprovalScreen(g.pendingApprovalId());   // asked
+} else if (!g.allow()) {
+    return refuse(g.reason());                        // refused
+}
+```
+
+That is the whole difference between a breaker and a human-in-the-loop
+control, and it is one field because you have to branch on it.
+
+### You render it. All of it.
+
+```java
+cx.iterApprovals("pending", null, null).forEach(a -> {
+    System.out.println(a.tool());        // the held call, verbatim
+    System.out.println(a.reason());      // your operator's policy words
+    System.out.println(a.expiresAt());   // decide before this
+});
+```
+
+Nothing in an `Approval` is display text we wrote. `reason()` and each
+`firedPolicies()` entry's `name` are the words your operator typed when
+they wrote the policy, and `action()` is the call your agent was about to
+make. There is no message for your end user, no copy of ours, and no
+branding — because a sentence we wrote would read identically in every
+customer's product, which is the thing this is designed to avoid.
+
+### A decision records which human made it
+
+```java
+cx.approveApproval("apr_7f3c9a1b", "acct_4471",
+                   "Dana R.", "verified the order by phone");
+```
+
+`actorId` is required, never defaulted, and never derived from the API
+key — the key identifies your integration, and an approval whose actor is
+the integration that requested it has recorded nobody. We resolve it
+against no directory, so your users never need an account here. A blank
+one throws `IllegalArgumentException` before any request goes out.
+
+Two operators who click at the same moment produce one decision and one
+`DMZAgentConflictException`; the body carries the status the approval had
+already reached. That is not a retry — the call did not fail, it lost.
+
+**An approval that nobody answers declines.** `onExpiry()` is always
+`"decline"` and there is no setting that changes it: an approval that
+becomes an allow because nobody looked at it is not a human-in-the-loop
+control, it is a delay with extra steps.
+
+## The incident and remediation ledger
+
+`anchor()` has been on `CheckResult` for several releases, pointing into a
+ledger nothing could open. Now it opens:
+
+```java
+CheckResult g = cx.check("subject:dv:checkout-bot");
+Map<String, Object> recorded = g.anchor();
+
+cx.iterIncidents("open", null, "2026-09-01T00:00:00Z", null, null)
+  .filter(inc -> Objects.equals(inc.anchor(), recorded))
+  .forEach(inc -> {
+      // this is the entry your check was told about
+  });
+```
+
+Every breaker that opened, every approval decided, every remediation that
+ran — newest ledger entry first, in the order the ledger recorded them
+rather than by timestamp, because two entries written in the same second
+still have an order.
+
+The ledger is **append-only**. There is no `closeIncident()` and no method
+that edits an entry: an incident reaches `remediated` because a
+remediation was appended to it, and `status()` is a fold over what has
+been appended. An incident with no remediations is the normal shape of
+something nobody has answered yet.
+
+### Paging
+
+`listApprovals()` and `getIncidents()` return one page and do not follow
+`nextCursor()`. You asked for 25 and you get 25 — a method that quietly
+walked every page would turn one bounded request into an unbounded one
+against a record that only grows. `iterApprovals()` and `iterIncidents()`
+return a lazy `Stream`: a short-circuiting terminal operation never
+requests the next page.
+
 ## Exception hierarchy
 
 ```

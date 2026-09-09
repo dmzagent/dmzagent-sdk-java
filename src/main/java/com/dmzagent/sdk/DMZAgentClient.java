@@ -27,12 +27,18 @@ import java.net.SocketTimeoutException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * Synchronous DMZAgent client — the SDK's main entry point.
@@ -883,6 +889,287 @@ public final class DMZAgentClient implements AutoCloseable {
     }
 
     // ===================================================================== //
+    // Human-in-the-loop approvals (spec §2.8–§2.9, §5.16–§5.18)
+    // ===================================================================== //
+
+    /**
+     * One page of approvals awaiting a human decision.
+     *
+     * <p>This is the read half of the white-label control: you render these
+     * in your own product, with your own words. Nothing in an
+     * {@link Approval} is display text we wrote.
+     *
+     * <pre>{@code
+     * ApprovalPage page = cx.listApprovals("pending", "subject:dv:bot", null, null);
+     * for (Approval a : page) renderMyOwnCard(a.action(), a.reason());
+     * }</pre>
+     *
+     * <p>Does not follow {@code nextCursor}. A caller who asked for 25 got
+     * 25, and a method that quietly walked every page would turn one bounded
+     * request into an unbounded one against a record that only grows. Use
+     * {@link #iterApprovals} when you want the walk.
+     *
+     * @param status    {@code pending} (default when null) | {@code approved}
+     *                  | {@code declined} | {@code expired}
+     * @param subjectId restrict to one subject, or null
+     * @param limit     1–100, or null for the server's 25
+     * @param cursor    from a previous page's {@code nextCursor}, or null
+     */
+    public ApprovalPage listApprovals(
+        String status, String subjectId, Integer limit, String cursor
+    ) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("status", status != null ? status : "pending");
+        if (subjectId != null) params.put("subject_id", subjectId);
+        if (limit != null) {
+            requirePageLimit(limit);
+            params.put("limit", String.valueOf(limit));
+        }
+        if (cursor != null) params.put("cursor", cursor);
+        return ApprovalPage.fromResponse(getJson("/v1/approvals" + query(params)));
+    }
+
+    /** {@code listApprovals("pending", null, null, null)}. */
+    public ApprovalPage listApprovals() {
+        return listApprovals(null, null, null, null);
+    }
+
+    /**
+     * Lazily walk every page of {@link #listApprovals}.
+     *
+     * <p>Fetches a page only when the consumer asks for an item past the
+     * ones it holds. A short-circuiting terminal operation — {@code findFirst},
+     * {@code limit} — never requests the next page, which is the whole reason
+     * this is a {@link Stream} and not a {@link List}.
+     */
+    public Stream<Approval> iterApprovals(
+        String status, String subjectId, Integer limit
+    ) {
+        Spliterator<Approval> pages = new Spliterators.AbstractSpliterator<>(
+            Long.MAX_VALUE, Spliterator.ORDERED | Spliterator.NONNULL
+        ) {
+            private Iterator<Approval> current = null;
+            private String cursor = null;
+            private boolean exhausted = false;
+
+            @Override
+            public boolean tryAdvance(Consumer<? super Approval> action) {
+                while (current == null || !current.hasNext()) {
+                    if (exhausted) return false;
+                    ApprovalPage page =
+                        listApprovals(status, subjectId, limit, cursor);
+                    cursor = page.nextCursor();
+                    if (cursor == null || cursor.isEmpty()) exhausted = true;
+                    current = page.approvals().iterator();
+                    // An empty page with a cursor is legal; loop rather than
+                    // reporting the walk finished.
+                    if (!current.hasNext() && exhausted) return false;
+                }
+                action.accept(current.next());
+                return true;
+            }
+        };
+        return StreamSupport.stream(pages, false);
+    }
+
+    /** {@code iterApprovals("pending", null, null)}. */
+    public Stream<Approval> iterApprovals() {
+        return iterApprovals(null, null, null);
+    }
+
+    /**
+     * Approve or decline a held action, on behalf of a named human.
+     *
+     * <p>{@code actorId} is required and is <em>your</em> identifier for the
+     * person who decided. It is never defaulted and never derived from the
+     * API key: the key identifies your integration, and an approval whose
+     * actor is the integration that requested it has recorded nobody. We
+     * resolve it against no directory, so your users never need an account
+     * here.
+     *
+     * <pre>{@code
+     * cx.decideApproval("apr_7f3c9a1b", "approve", "acct_4471",
+     *                   "Dana R.", "verified the order by phone");
+     * }</pre>
+     *
+     * @throws IllegalArgumentException locally — with no round trip — when
+     *         {@code actorId} is blank or {@code decision} is not
+     *         approve/decline, because a caller who has not got a human's
+     *         identity at this point does not have a human, and the failure
+     *         belongs where the mistake is.
+     * @throws com.dmzagent.sdk.exceptions.DMZAgentConflictException when the
+     *         approval was already decided or has expired. That is not a
+     *         transient fault to retry: someone else decided, or the window
+     *         closed.
+     */
+    public Approval decideApproval(
+        String approvalId, String decision, String actorId,
+        String actorLabel, String reason
+    ) {
+        if (!"approve".equals(decision) && !"decline".equals(decision)) {
+            throw new IllegalArgumentException(
+                "decision must be approve or decline, got " + decision);
+        }
+        if (actorId == null || actorId.isBlank()) {
+            throw new IllegalArgumentException(
+                "actorId is required: a human-in-the-loop decision has to "
+                + "record which human made it");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("decision", decision);
+        body.put("actor_id", actorId);
+        if (actorLabel != null) body.put("actor_label", actorLabel);
+        if (reason != null) body.put("reason", reason);
+
+        String path = "/v1/approvals/"
+            + URLEncoder.encode(approvalId, StandardCharsets.UTF_8)
+            + "/decision";
+        return Approval.fromResponse(postJson(path, body));
+    }
+
+    /** {@code decideApproval(id, "approve", ...)}. {@code actorId} stays required. */
+    public Approval approveApproval(
+        String approvalId, String actorId, String actorLabel, String reason
+    ) {
+        return decideApproval(approvalId, "approve", actorId, actorLabel, reason);
+    }
+
+    /** {@code approveApproval(id, actorId, null, null)}. */
+    public Approval approveApproval(String approvalId, String actorId) {
+        return approveApproval(approvalId, actorId, null, null);
+    }
+
+    /** {@code decideApproval(id, "decline", ...)}. {@code actorId} stays required. */
+    public Approval declineApproval(
+        String approvalId, String actorId, String actorLabel, String reason
+    ) {
+        return decideApproval(approvalId, "decline", actorId, actorLabel, reason);
+    }
+
+    /** {@code declineApproval(id, actorId, null, null)}. */
+    public Approval declineApproval(String approvalId, String actorId) {
+        return declineApproval(approvalId, actorId, null, null);
+    }
+
+    // ===================================================================== //
+    // The incident and remediation ledger (spec §2.10, §5.19–§5.21)
+    // ===================================================================== //
+
+    /**
+     * One page of the incident and remediation ledger.
+     *
+     * <p>Every breaker that opened, every approval decided, every
+     * remediation that ran — newest ledger entry first. This is the readable
+     * form of the {@code anchor} that {@link #check} hands back: record it at
+     * check time, find that {@code ledger_index} here, and compare hashes. A
+     * mismatch is the alarm the ledger exists for.
+     *
+     * <p>{@code since} and {@code until} are ISO-8601 strings; the window is
+     * half-open, {@code since} inclusive and {@code until} exclusive.
+     *
+     * <p>Does not follow {@code nextCursor} — see {@link #iterIncidents}.
+     */
+    public IncidentPage getIncidents(
+        String status, String subjectId, String since, String until,
+        Integer limit, String cursor
+    ) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("status", status != null ? status : "all");
+        if (subjectId != null) params.put("subject_id", subjectId);
+        if (since != null) params.put("since", since);
+        if (until != null) params.put("until", until);
+        if (limit != null) {
+            requirePageLimit(limit);
+            params.put("limit", String.valueOf(limit));
+        }
+        if (cursor != null) params.put("cursor", cursor);
+        return IncidentPage.fromResponse(getJson("/v1/incidents" + query(params)));
+    }
+
+    /** {@code getIncidents("all", null, null, null, null, null)}. */
+    public IncidentPage getIncidents() {
+        return getIncidents(null, null, null, null, null, null);
+    }
+
+    /** Lazily walk every page of {@link #getIncidents}, on §5.17's terms. */
+    public Stream<Incident> iterIncidents(
+        String status, String subjectId, String since, String until, Integer limit
+    ) {
+        Spliterator<Incident> pages = new Spliterators.AbstractSpliterator<>(
+            Long.MAX_VALUE, Spliterator.ORDERED | Spliterator.NONNULL
+        ) {
+            private Iterator<Incident> current = null;
+            private String cursor = null;
+            private boolean exhausted = false;
+
+            @Override
+            public boolean tryAdvance(Consumer<? super Incident> action) {
+                while (current == null || !current.hasNext()) {
+                    if (exhausted) return false;
+                    IncidentPage page = getIncidents(
+                        status, subjectId, since, until, limit, cursor);
+                    cursor = page.nextCursor();
+                    if (cursor == null || cursor.isEmpty()) exhausted = true;
+                    current = page.incidents().iterator();
+                    if (!current.hasNext() && exhausted) return false;
+                }
+                action.accept(current.next());
+                return true;
+            }
+        };
+        return StreamSupport.stream(pages, false);
+    }
+
+    /** {@code iterIncidents("all", null, null, null, null)}. */
+    public Stream<Incident> iterIncidents() {
+        return iterIncidents(null, null, null, null, null);
+    }
+
+    // There is deliberately no closeIncident() / resolveIncident(). The
+    // ledger is append-only and has no endpoint for one: an incident reaches
+    // "remediated" because a remediation was appended to it, and a
+    // convenience method that read as closing one would describe a ledger
+    // this is not (spec §5.21).
+
+    /**
+     * The approval status carried by a 409 body, or null.
+     *
+     * <p>How a caller tells the two 409s apart (spec §3): a settled approval
+     * says what it had already become; an idempotency conflict says nothing.
+     */
+    @SuppressWarnings("unchecked")
+    private static String settledApprovalStatus(Object body) {
+        if (body instanceof Map<?, ?> m) {
+            Object v = ((Map<String, Object>) m).get("status");
+            if (v instanceof String s && !s.isEmpty()) return s;
+        }
+        return null;
+    }
+
+    /** Reject a page size the server would reject, before the round trip. */
+    private static void requirePageLimit(int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new IllegalArgumentException(
+                "limit must be an integer in 1..100, got " + limit);
+        }
+    }
+
+    /** Build a query string from already-decoded values. */
+    private static String query(Map<String, String> params) {
+        if (params.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("?");
+        boolean first = true;
+        for (Map.Entry<String, String> e : params.entrySet()) {
+            if (!first) sb.append('&');
+            first = false;
+            sb.append(URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8))
+              .append('=')
+              .append(URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
+        }
+        return sb.toString();
+    }
+
+    // ===================================================================== //
     // Resource lifecycle
     // ===================================================================== //
 
@@ -1067,12 +1354,17 @@ public final class DMZAgentClient implements AutoCloseable {
             case 400, 422 -> throw new DMZAgentValidationException(
                 "server rejected request to " + path + ": " + body,
                 status, body);
-            // 409 is the Idempotency-Key in-flight conflict (spec §1.8).
-            // Kept off the 5xx branch below: the duplicate is the caller's
-            // own earlier request, so retrying the same key replays its
-            // stored response instead of causing a second side effect.
+            // 409 has two causes and one type (spec §3). Either the
+            // caller's own earlier request is still in flight under this
+            // Idempotency-Key (§1.8), or an approval was already decided or
+            // has expired (§2.9). Neither is transient — the call did not
+            // fail, it lost — so this stays off the 5xx branch below, and
+            // the message names which one it was rather than asserting the
+            // older cause on every path.
             case 409 -> throw new DMZAgentConflictException(
-                "a request with this Idempotency-Key is already in flight on " + path,
+                settledApprovalStatus(body) != null
+                    ? "approval already " + settledApprovalStatus(body) + " on " + path
+                    : "a request with this Idempotency-Key is already in flight on " + path,
                 status, body);
             case 429 -> throw new DMZAgentRateLimitException(
                 "rate limited on " + path,

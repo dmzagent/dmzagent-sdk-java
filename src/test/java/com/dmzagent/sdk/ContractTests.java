@@ -118,13 +118,31 @@ class ContractTests {
     /** Captures the outgoing request and returns a fixed 200 response. */
     private static final class Capture {
         String      path;
+        String      verb;
+        String      query;
         Map<String, Object> body;
         String      okJson = "{\"interaction_id\":\"int_test\",\"queued\":false}";
+
+        /** The query string as a decoded map, or empty when there was none. */
+        Map<String, String> queryMap() {
+            Map<String, String> out = new java.util.LinkedHashMap<>();
+            if (query == null || query.isEmpty()) return out;
+            for (String pair : query.split("&")) {
+                int i = pair.indexOf('=');
+                out.put(java.net.URLDecoder.decode(pair.substring(0, i),
+                            java.nio.charset.StandardCharsets.UTF_8),
+                        java.net.URLDecoder.decode(pair.substring(i + 1),
+                            java.nio.charset.StandardCharsets.UTF_8));
+            }
+            return out;
+        }
 
         Interceptor interceptor() {
             return chain -> {
                 Request req = chain.request();
                 path = req.url().encodedPath();
+                verb = req.method();
+                query = req.url().query();
                 String text = readBody(req);
                 if (!text.isEmpty()) body = MAPPER.readValue(text, MAP_TYPE);
                 return new Response.Builder()
@@ -201,11 +219,34 @@ class ContractTests {
                         (Map<String, Object>) f.get("args"));
                 }
                 assertThat(cap.path).isEqualTo(f.get("expected_path"));
+
+                // A read vector pins its verb and its query string. Asserting
+                // only the body would let a GET that sent every filter as
+                // nothing at all pass, since a GET has no body to be wrong
+                // about.
+                Object wantVerb = f.getOrDefault("expected_method", "POST");
+                assertThat(cap.verb)
+                    .as("verb mismatch for " + name)
+                    .isEqualTo(wantVerb);
+
+                Object wantQuery = f.get("expected_query");
+                if (wantQuery != null) {
+                    assertThat(cap.queryMap())
+                        .as("query mismatch for " + name)
+                        .isEqualTo(wantQuery);
+                }
+
                 Map<String, Object> expected =
                     (Map<String, Object>) f.get("expected_body");
-                assertThat(normalize(cap.body))
-                    .as("envelope mismatch for " + name)
-                    .isEqualTo(normalize(expected));
+                if (expected == null) {
+                    assertThat(cap.body)
+                        .as(name + ": expected no request body")
+                        .isNull();
+                } else {
+                    assertThat(normalize(cap.body))
+                        .as("envelope mismatch for " + name)
+                        .isEqualTo(normalize(expected));
+                }
             }));
         }
 
@@ -480,6 +521,28 @@ class ContractTests {
                 (String) args.get("speaker_role"),
                 (String) args.get("occurred_at"),
                 (Map<String, Object>) args.get("metadata"));
+
+            // 0.10.0 — the white-label approval control and the readable ledger.
+            case "list_approvals" -> cx.listApprovals(
+                (String) args.get("status"),
+                (String) args.get("subject_id"),
+                args.get("limit") instanceof Number n ? n.intValue() : null,
+                (String) args.get("cursor"));
+
+            case "decide_approval" -> cx.decideApproval(
+                (String) args.get("approval_id"),
+                (String) args.get("decision"),
+                (String) args.get("actor_id"),
+                (String) args.get("actor_label"),
+                (String) args.get("reason"));
+
+            case "get_incidents" -> cx.getIncidents(
+                (String) args.get("status"),
+                (String) args.get("subject_id"),
+                (String) args.get("since"),
+                (String) args.get("until"),
+                args.get("limit") instanceof Number n ? n.intValue() : null,
+                (String) args.get("cursor"));
 
             default -> throw new IllegalArgumentException(
                 "unknown corpus method: " + method);
