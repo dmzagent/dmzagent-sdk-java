@@ -40,8 +40,27 @@ public record CheckResult(
     Duration                          cacheAge,
     /** The check failed and this is the last known state. */
     boolean                           stale,
+    /**
+     * The approval this denial is waiting on, or {@code null} (spec §2.2).
+     *
+     * <p>Non-null only alongside {@code allow == false}. It is a field
+     * rather than a fourth breaker state so that code reading {@code allow}
+     * alone still refuses: a client that has never heard of approvals must
+     * not start allowing what it used to deny.
+     */
+    @JsonProperty("pending_approval_id") String pendingApprovalId,
     Map<String, Object>               raw
 ) {
+
+    /**
+     * This is an ask, not a refusal — a human can still clear it.
+     *
+     * <p>The difference {@code pendingApprovalId} exists to express: branch
+     * on it to show your approval UI instead of telling the user no.
+     */
+    public boolean awaitingApproval() {
+        return pendingApprovalId != null;
+    }
 
     /** Build a CheckResult from a parsed server response. */
     @SuppressWarnings("unchecked")
@@ -68,6 +87,7 @@ public record CheckResult(
             false,
             Duration.ZERO,
             false,
+            data.get("pending_approval_id") instanceof String s ? s : null,
             data
         );
     }
@@ -84,7 +104,7 @@ public record CheckResult(
         Duration safe = (age == null || age.isNegative()) ? Duration.ZERO : age;
         return new CheckResult(
             state, allow, warning, reason, firedPolicies, anchor, checkedAt,
-            latencyMs, routeLatencyMs, true, safe, stale, raw);
+            latencyMs, routeLatencyMs, true, safe, stale, pendingApprovalId, raw);
     }
 
     private static double toDouble(Object v) {
