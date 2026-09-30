@@ -7,7 +7,7 @@
 
   <groupId>com.dmzagent</groupId>
   <artifactId>dmzagent-sdk</artifactId>
-  <version>0.7.0</version>
+  <version>0.10.0</version>
   <packaging>jar</packaging>
 
   <name>DMZAgent SDK</name>

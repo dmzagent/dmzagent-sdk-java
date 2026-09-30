@@ -32,10 +32,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out at release tag
+      - name: Check out at release branch
         uses: actions/checkout@v4
         with:
-          ref: v${{ github.event.client_payload.version || inputs.version }}
+          ref: release/v${{ github.event.client_payload.version || inputs.version }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
