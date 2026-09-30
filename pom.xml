@@ -7,7 +7,7 @@
 
   <groupId>com.dmzagent</groupId>
   <artifactId>dmzagent-sdk</artifactId>
-  <version>0.7.0</version>
+  <version>0.10.0</version>
   <packaging>jar</packaging>
 
   <name>DMZAgent SDK</name>
@@ -108,17 +108,6 @@
     </dependency>
   </dependencies>
 
-  <distributionManagement>
-    <snapshotRepository>
-      <id>ossrh</id>
-      <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
-    </snapshotRepository>
-    <repository>
-      <id>ossrh</id>
-      <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-    </repository>
-  </distributionManagement>
-
   <build>
     <!-- Filtered so the User-Agent cannot drift from the pinned spec
          version. It had: DEFAULT_UA read `dmzagent-java/0.6.0` while the
@@ -179,8 +168,8 @@
 
   <profiles>
     <!--
-      Release profile: signs artifacts with GPG and stages them to
-      OSSRH for promotion to Maven Central. Activated by `mvn deploy -Prelease`.
+      Release profile: signs artifacts with GPG and publishes them to
+      Maven Central through the Central Portal. Activated by `mvn deploy -Prelease`.
     -->
     <profile>
       <id>release</id>
@@ -205,15 +194,23 @@
             </executions>
           </plugin>
 
+          <!--
+            Sonatype retired OSSRH (s01.oss.sonatype.org) in 2025; releases
+            now go through the Central Portal. This plugin replaces the
+            deploy phase: it bundles the signed jar, sources and javadoc,
+            uploads them, and with autoPublish waits until Central has
+            published (not just validated) so a failure fails the job.
+            Credentials are a Portal user token under server id `central`.
+          -->
           <plugin>
-            <groupId>org.sonatype.plugins</groupId>
-            <artifactId>nexus-staging-maven-plugin</artifactId>
-            <version>1.7.0</version>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.11.0</version>
             <extensions>true</extensions>
             <configuration>
-              <serverId>ossrh</serverId>
-              <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-              <autoReleaseAfterClose>true</autoReleaseAfterClose>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+              <waitUntil>published</waitUntil>
             </configuration>
           </plugin>
         </plugins>
