@@ -5,8 +5,9 @@ name: publish
 # payload carries the version the spec repo wants released.
 #
 # Required secrets:
-#   OSSRH_USERNAME      Sonatype OSSRH JIRA username.
-#   OSSRH_TOKEN         Sonatype OSSRH token.
+#   CENTRAL_USERNAME    Central Portal user-token username
+#                       (central.sonatype.com → Account → Generate User Token).
+#   CENTRAL_TOKEN       Central Portal user-token password.
 #   GPG_PRIVATE_KEY     Armored private key for signing the artifact.
 #   GPG_PASSPHRASE      Passphrase for GPG_PRIVATE_KEY.
 #
@@ -43,10 +44,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-          # configure-maven-settings: write Sonatype creds into ~/.m2/settings.xml
-          server-id: ossrh
-          server-username: OSSRH_USERNAME
-          server-password: OSSRH_TOKEN
+          # configure-maven-settings: write Central Portal creds into ~/.m2/settings.xml
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_TOKEN
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase:  GPG_PASSPHRASE
 
@@ -59,18 +60,18 @@ jobs:
             exit 1
           fi
 
-      - name: Deploy to OSSRH staging
+      - name: Publish to Maven Central (Central Portal)
         env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_TOKEN:    ${{ secrets.OSSRH_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN:    ${{ secrets.CENTRAL_TOKEN }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: mvn -B -ntp -Prelease deploy
 
-      # nexus-staging-maven-plugin is configured with
-      # autoReleaseAfterClose=true, so a successful `deploy` runs:
-      #   1. Stage to OSSRH.
-      #   2. Close the staging repo (triggers Sonatype validation).
-      #   3. Release to Central.
-      # If any step fails, the staging repo is dropped automatically
-      # and this workflow exits non-zero — promote.yml then runs
-      # yank.yml against any SDK that did publish.
+      # central-publishing-maven-plugin runs with autoPublish=true and
+      # waitUntil=published, so a successful `deploy` has:
+      #   1. Uploaded the signed bundle to the Central Portal.
+      #   2. Passed Central's validation (signatures, sources, javadoc, POM).
+      #   3. Been published to Maven Central.
+      # A validation failure leaves a FAILED deployment in the Portal (drop
+      # it there) and exits non-zero; promote.yml then opens the yank issue
+      # for any SDK that did publish.
