@@ -1021,9 +1021,9 @@ public final class DMZAgentClient implements AutoCloseable {
         if (actorLabel != null) body.put("actor_label", actorLabel);
         if (reason != null) body.put("reason", reason);
 
-        String path = "/v1/approvals/"
-            + URLEncoder.encode(approvalId, StandardCharsets.UTF_8)
-            + "/decision";
+        // One RFC 3986 path segment, as for getApproval. URLEncoder is a form
+        // encoder: it sent a space as '+', which in a path is a literal plus.
+        String path = "/v1/approvals/" + pathSegment(approvalId) + "/decision";
         return Approval.fromResponse(postJson(path, body));
     }
 
@@ -1219,9 +1219,11 @@ public final class DMZAgentClient implements AutoCloseable {
      *        call is not counted as two attempts. The SDK never generates
      *        one (spec §1.8).
      * @throws IllegalArgumentException for a malformed step, before any request
-     * @throws com.dmzagent.sdk.exceptions.DMZAgentException when the step is
-     *         refused by the server, cannot be sent, or is answered without a
-     *         directive
+     * @throws com.dmzagent.sdk.exceptions.DMZAgentServerException when the
+     *         step cannot be sent, or is answered with a 2xx that carries no
+     *         directive (or is not JSON) — {@code statusCode()} is that 2xx
+     * @throws com.dmzagent.sdk.exceptions.DMZAgentException subtypes as §3
+     *         maps them when the server answers with an error status
      */
     public StepResult agentStep(
         String              agentSubjectId,
@@ -1297,16 +1299,21 @@ public final class DMZAgentClient implements AutoCloseable {
         if (occurredAt != null && !occurredAt.isEmpty()) body.put("occurred_at", occurredAt);
         if (metadata   != null && !metadata.isEmpty())   body.put("metadata",    metadata);
 
-        Map<String, Object> data = postJson("/v1/agent-stream/step", body, idempotencyKey);
+        int[] httpStatus = { 0 };
+        Map<String, Object> data = postJson(
+            "/v1/agent-stream/step", body, idempotencyKey, code -> httpStatus[0] = code);
         // A 2xx that does not carry a directive is an answer that cannot be
         // read. handle() turns a non-JSON 2xx into an empty map, which for an
         // event is harmless; for a step it would be a StepResult with an
         // empty directive, and the caller would have to know that "" means
-        // no. Raise instead (spec §1.9).
+        // no. Spec §1.9: raise ServerError with the response's status — the
+        // fault is on the server's side of the wire, and a retry under the
+        // same Idempotency-Key is safe.
         if (!(data.get("directive") instanceof String d) || d.isEmpty()) {
-            throw new DMZAgentException(
-                "the answer to a " + phase + " step on /v1/agent-stream/step carried "
-                + "no directive; do not run the call", null, data);
+            throw new DMZAgentServerException(
+                "the answer to a " + phase + " step on /v1/agent-stream/step ("
+                + httpStatus[0] + ") carried no directive; do not run the call",
+                httpStatus[0], data);
         }
         return StepResult.fromResponse(data);
     }
@@ -1515,6 +1522,19 @@ public final class DMZAgentClient implements AutoCloseable {
     private Map<String, Object> postJson(
         String path, Map<String, Object> body, String idempotencyKey
     ) {
+        return postJson(path, body, idempotencyKey, null);
+    }
+
+    /**
+     * As {@link #postJson(String, Map, String)}, also reporting the response
+     * status to {@code statusSeen} before the body is read — for a caller
+     * that has to judge a 2xx body itself and name the status if it cannot
+     * read it.
+     */
+    private Map<String, Object> postJson(
+        String path, Map<String, Object> body, String idempotencyKey,
+        java.util.function.IntConsumer statusSeen
+    ) {
         String url = baseUrl + path;
         String json;
         try {
@@ -1539,6 +1559,7 @@ public final class DMZAgentClient implements AutoCloseable {
         Request req = builder.build();
 
         try (Response resp = http.newCall(req).execute()) {
+            if (statusSeen != null) statusSeen.accept(resp.code());
             return handle(resp, path);
         } catch (SocketTimeoutException e) {
             throw new DMZAgentServerException(

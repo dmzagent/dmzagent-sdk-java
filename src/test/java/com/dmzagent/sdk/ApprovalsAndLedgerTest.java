@@ -296,6 +296,22 @@ class ApprovalsAndLedgerTest {
         }
 
         @Test
+        @DisplayName("the approval id is one RFC 3986 path segment, not form-encoded")
+        void theApprovalIdIsAPathSegment() {
+            Transport t = Transport.serving(approvalBody("approved"));
+            DMZAgentClient cx = client(t);
+            cx.decideApproval("apr 7/x+y:z", "approve", "acct_1", null, null);
+            // A form encoder sends the space as '+', which in a path is a
+            // literal plus and names a different approval.
+            assertEquals("/v1/approvals/apr%207%2Fx%2By:z/decision", t.seen.get(0).path());
+            for (String dots : new String[] { ".", ".." }) {
+                assertThrows(IllegalArgumentException.class,
+                    () -> cx.decideApproval(dots, "approve", "acct_1", null, null));
+            }
+            assertEquals(1, t.calls.get());
+        }
+
+        @Test
         void approveAndDeclineSendTheirOwnVerb() throws Exception {
             Transport t = Transport.serving(
                 approvalBody("approved"), approvalBody("declined"));

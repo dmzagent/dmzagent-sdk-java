@@ -384,8 +384,10 @@ read it with `cx.getApproval(id)`: approved runs, anything else does not.
 `block` refuses this call; `shutdown` refuses it and every later step.
 A directive this SDK does not know is kept as its raw string and `runs()`
 is `false` for it: an unknown word from the governor is not a yes. A step
-that cannot be sent, or whose answer carries no directive, throws — never
-run the call on an exception.
+that cannot be sent, or whose 2xx answer carries no directive or is not
+JSON, throws `DMZAgentServerException` (with that 2xx as `statusCode()`;
+retrying under the same `idempotencyKey` is safe) — never run the call on
+an exception.
 
 A malformed step throws `IllegalArgumentException` before any request:
 an unknown phase, a `call`/`result` without `callId` or `tool`, a

@@ -260,6 +260,25 @@ class AgentModeTest {
                 s.phase = "result"; s.status = "ok"; s.refusedBy = "host";
             }), "refused");
             refusedLocally(new Step().with(s -> s.refusedBy = "harness"), "refused");
+            refusedLocally(new Step().with(s -> {
+                s.phase = "intent"; s.callId = null; s.tool = null; s.args = null;
+                s.intent = Map.of("text", "x"); s.refusedBy = "governor";
+            }), "refused");
+            refusedLocally(new Step().with(s -> {
+                s.phase = "result"; s.status = "error"; s.refusedBy = "host";
+            }), "refused");
+        }
+
+        @Test
+        @DisplayName("status and refusedBy values are the server's to judge (Appendix B)")
+        void unknownStatusAndRefuserValuesStillGoOut() {
+            Transport t = Transport.serving(answer("proceed"));
+            DMZAgentClient cx = client(t);
+            new Step().with(s -> { s.phase = "result"; s.status = "timeout"; }).send(cx);
+            new Step().with(s -> {
+                s.phase = "result"; s.status = "refused"; s.refusedBy = "reviewer";
+            }).send(cx);
+            assertEquals(2, t.calls.get());
         }
 
         @Test
@@ -353,16 +372,21 @@ class AgentModeTest {
         }
 
         @Test
-        @DisplayName("a 200 with no directive raises rather than returning a result")
+        @DisplayName("a 2xx with no directive raises ServerError carrying its status (§1.9)")
         void anAnswerWithoutADirectiveIsNotAnAnswer() {
             Map<String, Object> missing = answer("proceed");
             missing.remove("directive");
-            for (Object body : new Object[] {
-                    missing, answer(""), "not json", Map.of() }) {
-                Transport t = Transport.serving(body);
-                DMZAgentException e = assertThrows(DMZAgentException.class,
-                    () -> new Step().send(client(t)));
-                assertTrue(e.getMessage().contains("directive"), e.getMessage());
+            Map<String, Object> notAString = answer("proceed");
+            notAString.put("directive", 1);
+            for (int code : new int[] { 200, 201 }) {
+                for (Object body : new Object[] {
+                        missing, notAString, answer(""), "not json", Map.of() }) {
+                    Transport t = new Transport(code, body);
+                    DMZAgentServerException e = assertThrows(DMZAgentServerException.class,
+                        () -> new Step().send(client(t)));
+                    assertTrue(e.getMessage().contains("directive"), e.getMessage());
+                    assertEquals(code, e.statusCode(), "the response's own status");
+                }
             }
         }
 
