@@ -833,7 +833,7 @@ public final class DMZAgentClient implements AutoCloseable {
         long end = start + (long)(timeoutSeconds * 1000);
         long delay = 100;
         Exception lastError = null;
-        String path = "/v1/frames/" + URLEncoder.encode(frameId, StandardCharsets.UTF_8) + "/story";
+        String path = "/v1/frames/" + pathSegment(frameId) + "/story";
 
         while (System.currentTimeMillis() < end) {
             try {
@@ -877,13 +877,13 @@ public final class DMZAgentClient implements AutoCloseable {
     // ===================================================================== //
 
     public DivisionConfig getDivisionConfig(String divisionId) {
-        String path = "/v1/divisions/" + URLEncoder.encode(divisionId, StandardCharsets.UTF_8) + "/config";
+        String path = "/v1/divisions/" + pathSegment(divisionId) + "/config";
         Map<String, Object> data = getJson(path);
         return DivisionConfig.fromResponse(data);
     }
 
     public DivisionConfig updateDivisionConfig(String divisionId, Map<String, Object> config) {
-        String path = "/v1/divisions/" + URLEncoder.encode(divisionId, StandardCharsets.UTF_8) + "/config";
+        String path = "/v1/divisions/" + pathSegment(divisionId) + "/config";
         Map<String, Object> data = putJson(path, config);
         return DivisionConfig.fromResponse(data);
     }
