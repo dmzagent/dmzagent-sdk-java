@@ -1051,6 +1051,37 @@ public final class DMZAgentClient implements AutoCloseable {
         return declineApproval(approvalId, actorId, null, null);
     }
 
+    /**
+     * One approval, by id (spec §2.13, §5.25).
+     *
+     * <p>How a harness holding a {@code hold} directive learns whether the
+     * call was approved, without walking {@link #listApprovals}. Approved
+     * runs; anything else — declined, expired, still pending past your own
+     * patience — is {@code block} (spec §1.9).
+     *
+     * <pre>{@code
+     * StepResult r = session.call("call_7", "refund.issue", args, null);
+     * if (Directives.HOLD.equals(r.directive())) {
+     *     Approval a = cx.getApproval(r.approvalId());
+     *     boolean mayRun = "approved".equals(a.status());
+     * }
+     * }</pre>
+     *
+     * @throws IllegalArgumentException locally, with no round trip, when
+     *         {@code approvalId} is blank — an empty id would address the
+     *         list endpoint, not an approval.
+     * @throws com.dmzagent.sdk.exceptions.DMZAgentException on {@code 404}.
+     *         An unknown id is the base type, not a dedicated not-found
+     *         exception: spec §2.13 defers one because it would change the
+     *         hierarchy of §3.
+     */
+    public Approval getApproval(String approvalId) {
+        if (approvalId == null || approvalId.isBlank()) {
+            throw new IllegalArgumentException("approvalId is required");
+        }
+        return Approval.fromResponse(getJson("/v1/approvals/" + pathSegment(approvalId)));
+    }
+
     // ===================================================================== //
     // The incident and remediation ledger (spec §2.10, §5.19–§5.21)
     // ===================================================================== //
@@ -1130,6 +1161,289 @@ public final class DMZAgentClient implements AutoCloseable {
     // "remediated" because a remediation was appended to it, and a
     // convenience method that read as closing one would describe a ledger
     // this is not (spec §5.21).
+
+    // ===================================================================== //
+    // Agent mode (spec §1.9, §2.11–§2.12, §5.22–§5.24)
+    // ===================================================================== //
+
+    /**
+     * As {@link #agentStep(String, String, String, String, String, Map, String,
+     * Object, String, String, String, Map, String, Map, String)} with no
+     * {@code Idempotency-Key}.
+     */
+    public StepResult agentStep(
+        String              agentSubjectId,
+        String              interactionId,
+        String              phase,
+        String              callId,
+        String              tool,
+        Map<String, Object> args,
+        String              status,
+        Object              result,
+        String              refusedBy,
+        String              reason,
+        String              attemptOf,
+        Map<String, Object> intent,
+        String              occurredAt,
+        Map<String, Object> metadata
+    ) {
+        return agentStep(agentSubjectId, interactionId, phase, callId, tool, args,
+            status, result, refusedBy, reason, attemptOf, intent, occurredAt,
+            metadata, null);
+    }
+
+    /**
+     * Report one step of an agent session and receive its directive
+     * (spec §2.11, §5.22).
+     *
+     * <p>Parameters are the request fields of §2.11, in its order;
+     * {@code null} optional parameters are omitted from the wire. Most
+     * callers want {@link #agentSession}, which fills in the two ids and the
+     * phase.
+     *
+     * <p><b>Validated locally, with no round trip</b>: {@code phase} is one of
+     * {@link StepPhases#ALL}; {@code callId} and {@code tool} are present on
+     * {@code call} and {@code result}; {@code status} is present on
+     * {@code result}; {@code refusedBy} is present exactly when
+     * {@code status} is {@code refused}; {@code intent} (with its
+     * {@code text}) is present on {@code intent}. A malformed step is a
+     * mistake in the harness, and the failure belongs where the mistake is.
+     *
+     * <p><b>An unanswered step is not a yes.</b> When the step cannot be
+     * sent, or its answer carries no directive, this throws rather than
+     * returning anything a caller could read as permission. Run the call
+     * only when {@link StepResult#runs()} is {@code true}.
+     *
+     * @param idempotencyKey caller-generated key, or {@code null} for none.
+     *        RECOMMENDED on a {@code call} step a harness may retry, so one
+     *        call is not counted as two attempts. The SDK never generates
+     *        one (spec §1.8).
+     * @throws IllegalArgumentException for a malformed step, before any request
+     * @throws com.dmzagent.sdk.exceptions.DMZAgentException when the step is
+     *         refused by the server, cannot be sent, or is answered without a
+     *         directive
+     */
+    public StepResult agentStep(
+        String              agentSubjectId,
+        String              interactionId,
+        String              phase,
+        String              callId,
+        String              tool,
+        Map<String, Object> args,
+        String              status,
+        Object              result,
+        String              refusedBy,
+        String              reason,
+        String              attemptOf,
+        Map<String, Object> intent,
+        String              occurredAt,
+        Map<String, Object> metadata,
+        String              idempotencyKey
+    ) {
+        requireStepIds(agentSubjectId, interactionId);
+        if (phase == null || !StepPhases.ALL.contains(phase)) {
+            throw new IllegalArgumentException(
+                "phase must be one of " + StepPhases.ALL + ", got '" + phase + "'");
+        }
+        boolean concernsACall = StepPhases.CALL.equals(phase) || StepPhases.RESULT.equals(phase);
+        if (concernsACall) {
+            if (callId == null || callId.isBlank()) {
+                throw new IllegalArgumentException(
+                    "callId is required on a " + phase + " step");
+            }
+            if (tool == null || tool.isBlank()) {
+                throw new IllegalArgumentException(
+                    "tool is required on a " + phase + " step");
+            }
+        }
+        if (StepPhases.RESULT.equals(phase) && (status == null || status.isBlank())) {
+            throw new IllegalArgumentException(
+                "status is required on a result step: ok, error or refused");
+        }
+        boolean isRefusal = "refused".equals(status);
+        boolean namesRefuser = refusedBy != null && !refusedBy.isBlank();
+        if (isRefusal && !namesRefuser) {
+            throw new IllegalArgumentException(
+                "refusedBy is required when status is refused: governor, harness "
+                + "or host — a refusal that does not say who refused cannot be told "
+                + "apart from the governor's own");
+        }
+        if (!isRefusal && refusedBy != null) {
+            throw new IllegalArgumentException(
+                "refusedBy is sent only when status is refused, got status '"
+                + status + "'");
+        }
+        if (StepPhases.INTENT.equals(phase)) {
+            Object text = intent == null ? null : intent.get("text");
+            if (!(text instanceof String s) || s.isBlank()) {
+                throw new IllegalArgumentException(
+                    "intent with its text is required on an intent step");
+            }
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("agent_subject_id", agentSubjectId);
+        body.put("interaction_id",   interactionId);
+        body.put("phase",            phase);
+        if (callId     != null) body.put("call_id",     callId);
+        if (tool       != null) body.put("tool",        tool);
+        if (args       != null) body.put("args",        args);
+        if (status     != null) body.put("status",      status);
+        if (result     != null) body.put("result",      result);
+        if (refusedBy  != null) body.put("refused_by",  refusedBy);
+        if (reason     != null) body.put("reason",      reason);
+        if (attemptOf  != null) body.put("attempt_of",  attemptOf);
+        if (intent     != null) body.put("intent",      intent);
+        if (occurredAt != null && !occurredAt.isEmpty()) body.put("occurred_at", occurredAt);
+        if (metadata   != null && !metadata.isEmpty())   body.put("metadata",    metadata);
+
+        Map<String, Object> data = postJson("/v1/agent-stream/step", body, idempotencyKey);
+        // A 2xx that does not carry a directive is an answer that cannot be
+        // read. handle() turns a non-JSON 2xx into an empty map, which for an
+        // event is harmless; for a step it would be a StepResult with an
+        // empty directive, and the caller would have to know that "" means
+        // no. Raise instead (spec §1.9).
+        if (!(data.get("directive") instanceof String d) || d.isEmpty()) {
+            throw new DMZAgentException(
+                "the answer to a " + phase + " step on /v1/agent-stream/step carried "
+                + "no directive; do not run the call", null, data);
+        }
+        return StepResult.fromResponse(data);
+    }
+
+    /**
+     * A handle bound to one agent session (spec §5.23). It holds only the
+     * two ids; every method sends one step and returns its
+     * {@link StepResult}.
+     *
+     * @throws IllegalArgumentException when either id is blank
+     */
+    public AgentSession agentSession(String agentSubjectId, String interactionId) {
+        return new AgentSession(this, agentSubjectId, interactionId);
+    }
+
+    /** Both ids a step needs, refused locally when blank. */
+    static void requireStepIds(String agentSubjectId, String interactionId) {
+        if (agentSubjectId == null || agentSubjectId.isBlank()) {
+            throw new IllegalArgumentException("agentSubjectId is required");
+        }
+        if (interactionId == null || interactionId.isBlank()) {
+            throw new IllegalArgumentException(
+                "interactionId is required: it names the session, and is the "
+                + "caller's to assign and keep stable for the session's life");
+        }
+    }
+
+    /**
+     * One page of a subject's conduct record (spec §2.12, §5.24): every
+     * behavior observed, positive and negative, newest {@code observedAt}
+     * first.
+     *
+     * <p>Does not follow {@code nextCursor} — see {@link #iterBehaviors}.
+     * There is no method that removes or amends a behavior: the record is
+     * corrected by correcting the soul, never by editing an entry.
+     *
+     * @param subjectId     the subject whose record to read; required
+     * @param polarity      {@code positive} | {@code negative} | {@code all},
+     *                      or null for the server's {@code all}
+     * @param interactionId restrict to one session, or null
+     * @param since         ISO-8601, inclusive, or null
+     * @param until         ISO-8601, exclusive, or null
+     * @param limit         1–100, or null for the server's 25
+     * @param cursor        from a previous page's {@code nextCursor}, or null
+     */
+    public BehaviorPage listBehaviors(
+        String subjectId, String polarity, String interactionId,
+        String since, String until, Integer limit, String cursor
+    ) {
+        if (subjectId == null || subjectId.isBlank()) {
+            throw new IllegalArgumentException("subjectId is required");
+        }
+        Map<String, String> params = new LinkedHashMap<>();
+        if (polarity      != null) params.put("polarity", polarity);
+        if (interactionId != null) params.put("interaction_id", interactionId);
+        if (since         != null) params.put("since", since);
+        if (until         != null) params.put("until", until);
+        if (limit != null) {
+            requirePageLimit(limit);
+            params.put("limit", String.valueOf(limit));
+        }
+        if (cursor != null) params.put("cursor", cursor);
+        return BehaviorPage.fromResponse(getJson(
+            "/v1/subjects/" + pathSegment(subjectId) + "/behaviors" + query(params)));
+    }
+
+    /** {@code listBehaviors(subjectId, null, null, null, null, null, null)}. */
+    public BehaviorPage listBehaviors(String subjectId) {
+        return listBehaviors(subjectId, null, null, null, null, null, null);
+    }
+
+    /** Lazily walk every page of {@link #listBehaviors}, on §5.17's terms. */
+    public Stream<Behavior> iterBehaviors(
+        String subjectId, String polarity, String interactionId,
+        String since, String until, Integer limit
+    ) {
+        Spliterator<Behavior> pages = new Spliterators.AbstractSpliterator<>(
+            Long.MAX_VALUE, Spliterator.ORDERED | Spliterator.NONNULL
+        ) {
+            private Iterator<Behavior> current = null;
+            private String cursor = null;
+            private boolean exhausted = false;
+
+            @Override
+            public boolean tryAdvance(Consumer<? super Behavior> action) {
+                while (current == null || !current.hasNext()) {
+                    if (exhausted) return false;
+                    BehaviorPage page = listBehaviors(
+                        subjectId, polarity, interactionId, since, until, limit, cursor);
+                    cursor = page.nextCursor();
+                    if (cursor == null || cursor.isEmpty()) exhausted = true;
+                    current = page.behaviors().iterator();
+                    if (!current.hasNext() && exhausted) return false;
+                }
+                action.accept(current.next());
+                return true;
+            }
+        };
+        return StreamSupport.stream(pages, false);
+    }
+
+    /** {@code iterBehaviors(subjectId, null, null, null, null, null)}. */
+    public Stream<Behavior> iterBehaviors(String subjectId) {
+        return iterBehaviors(subjectId, null, null, null, null, null);
+    }
+
+    /**
+     * Percent-encode one path segment (RFC 3986 {@code pchar}).
+     *
+     * <p>Not {@link URLEncoder}, which is a form encoder: it would turn the
+     * colons of a canonical subject id ({@code subject:dv:agent-a}) into
+     * {@code %3A}, which a path does not need, and a space into {@code +},
+     * which in a path is a literal plus.
+     */
+    static String pathSegment(String s) {
+        // "." and ".." are dot-segments a URL parser resolves away, which
+        // would address a different resource. OkHttp resolves "%2E%2E" too,
+        // so encoding them does not help: refuse them.
+        if (s.equals(".") || s.equals("..")) {
+            throw new IllegalArgumentException(
+                "'" + s + "' cannot be sent as an id: it is a dot-segment");
+        }
+        StringBuilder sb = new StringBuilder();
+        for (byte b : s.getBytes(StandardCharsets.UTF_8)) {
+            int c = b & 0xff;
+            boolean keep = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9')
+                || c == '-' || c == '.' || c == '_' || c == '~'
+                || c == ':' || c == '@';
+            if (keep) {
+                sb.append((char) c);
+            } else {
+                sb.append('%').append(String.format("%02X", c));
+            }
+        }
+        return sb.toString();
+    }
 
     /**
      * The approval status carried by a 409 body, or null.

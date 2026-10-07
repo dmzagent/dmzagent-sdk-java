@@ -1,19 +1,19 @@
 # DMZAgent SDK — Java
 
 [![Maven Central](https://img.shields.io/maven-central/v/com.dmzagent/dmzagent-sdk.svg)](https://search.maven.org/artifact/com.dmzagent/dmzagent-sdk)
-[![spec](https://img.shields.io/badge/spec-0.9.0-blue)](https://github.com/dmzagent/dmzagent-sdk-spec/tree/v0.9.0)
+[![spec](https://img.shields.io/badge/spec-0.11.0-blue)](https://github.com/dmzagent/dmzagent-sdk-spec/tree/v0.11.0)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Official Java SDK for [DMZAgent](https://dmzagent.com) — emit
-agent-stream events, run circuit-breaker checks, verify outbound
-webhook signatures.
+agent-stream events, govern an agent session one step at a time, run
+circuit-breaker checks, verify outbound webhook signatures.
 
 The surface is defined by the language-agnostic
 [`dmzagent-sdk-spec`](https://github.com/dmzagent/dmzagent-sdk-spec)
 and is identical across the Python, TypeScript, C#, and Java SDKs —
 same constructor shape, same methods (under each language's
 idiomatic naming), same return types, same error hierarchy, same
-wire protocol. This SDK pins to **spec version 0.9.0** — the value in
+wire protocol. This SDK pins to **spec version 0.11.0** — the value in
 `pom.xml`'s `<dmzagent.spec.version>`, which `VersionMarkerTest` holds
 the User-Agent to.
 
@@ -27,7 +27,7 @@ the User-Agent to.
 <dependency>
   <groupId>com.dmzagent</groupId>
   <artifactId>dmzagent-sdk</artifactId>
-  <version>0.5.0</version>
+  <version>0.11.0</version>
 </dependency>
 ```
 
@@ -35,7 +35,7 @@ the User-Agent to.
 
 ```kotlin
 dependencies {
-    implementation("com.dmzagent:dmzagent-sdk:0.5.0")
+    implementation("com.dmzagent:dmzagent-sdk:0.11.0")
 }
 ```
 
@@ -43,7 +43,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'com.dmzagent:dmzagent-sdk:0.5.0'
+    implementation 'com.dmzagent:dmzagent-sdk:0.11.0'
 }
 ```
 
@@ -185,7 +185,7 @@ Add participants mid-conversation with `conv.addSubject(id, role, kind)`.
 ## Webhook signature verification
 
 DMZAgent signs outbound webhooks with HMAC-SHA256. Use
-`WebhookSignature.verify` to check the `DMZAgent-Signature` header
+`WebhookSignature.verify` to check the `X-DMZAgent-Signature` header
 before trusting a payload:
 
 ```java
@@ -193,7 +193,7 @@ import com.dmzagent.sdk.WebhookSignature;
 
 boolean valid = WebhookSignature.verify(
     rawRequestBody,                                // payload (UTF-8 string)
-    request.getHeader("DMZAgent-Signature"),      // "t=<unix>,v1=<hex>"
+    request.getHeader("X-DMZAgent-Signature"),    // "t=<unix>,v1=<hex>"
     System.getenv("DMZAGENT_WEBHOOK_SECRET"));    // whsec_…
 
 if (!valid) {
@@ -209,6 +209,41 @@ to make replay-window tests deterministic.
 The verifier returns `false` for every failure mode (missing
 fields, malformed timestamp, wrong secret, replay-window breach,
 digest mismatch) — it does **not** throw on bad input.
+
+### What a delivery carries
+
+This SDK verifies the signature and leaves the body to you. Each POST is
+one JSON object (spec §9.1):
+
+```json
+{
+  "api_version":  "2026-05-30",
+  "kind":         "approval.requested",
+  "workspace_id": "ws_xxx",
+  "title":        "",
+  "body":         "",
+  "link":         null,
+  "data":         { },
+  "delivered_at": "2026-06-10T12:00:00.000Z"
+}
+```
+
+`kind` is also sent as the `X-DMZAgent-Event` header, and
+`X-DMZAgent-Delivery` is the same id on every retry of one delivery, so
+deduplicate on it. `data` is the event's object — an `Approval` for
+`approval.requested` / `approval.decided`, an `Incident` for
+`incident.opened` / `incident.remediated`, a `Behavior` for
+`behavior.observed`, which `Approval.fromResponse`, `Incident.fromResponse`
+and `Behavior.fromResponse` read. `title` and `body` are empty and `link`
+is null for these events: render them in your own words. Answer 2xx to a
+`kind` you do not know rather than failing it — a non-2xx is retried, and
+repeated failures disable the subscription.
+
+**A missed webhook must not become an approval.** Delivery is
+at-least-once and not guaranteed, and an approval's `expiresAt` runs
+regardless: expiry declines. If you build only on `approval.requested`
+and never read `listApprovals()`, held actions can quietly expire — safe,
+but invisible.
 
 ---
 
@@ -306,16 +341,96 @@ against a record that only grows. `iterApprovals()` and `iterIncidents()`
 return a lazy `Stream`: a short-circuiting terminal operation never
 requests the next page.
 
+## Agent mode
+
+An agent session is an interaction whose subject acts on its own: it
+calls tools, and something may let each call run or refuse it. Report
+each step and act on the answer (spec §1.9):
+
+```java
+AgentSession s = cx.agentSession("subject:dv:agent-a", "sess_4b1e");
+
+s.intent("Add a trace id to every request.",
+         List.of("src/obs/"), List.of("Edit", "Bash"));
+
+StepResult r = s.call("call_7", "Bash",
+                      Map.of("command", "git push origin HEAD"), null);
+if (r.runs()) {
+    s.result("call_7", "Bash", "ok", runTheTool(), null);
+} else {
+    // Every call that did not run is reported, whoever refused it:
+    // "governor" (this answer), "harness" (your rules) or "host".
+    s.refused("call_7", "Bash", "governor", r.reason(), null);
+}
+```
+
+| Method                                                   | Sends                                  |
+|----------------------------------------------------------|----------------------------------------|
+| `intent(text, paths, tools)`                             | `phase: intent`                        |
+| `call(callId, tool, args, attemptOf)`                    | `phase: call`, **before** the tool runs |
+| `result(callId, tool, status, result, reason)`           | `phase: result`, `status` `ok` or `error` |
+| `refused(callId, tool, refusedBy, reason, attemptOf)`    | `phase: result`, `status: refused`     |
+
+Each has an overload taking a trailing `idempotencyKey`. Pass one on a
+`call` your harness may retry, so one call is not counted as two
+attempts; the SDK never makes one up. The handle holds only its two ids:
+it does not remember refusals or infer `attemptOf` — say so yourself when
+a call retries an earlier one. `cx.agentStep(...)` is the same request
+with every §2.11 field as a parameter.
+
+**Branch on `runs()`, not on `directive()`.** `runs()` is `true` exactly
+for `proceed` and `warn`. `hold` names an approval in `approvalId()` —
+read it with `cx.getApproval(id)`: approved runs, anything else does not.
+`block` refuses this call; `shutdown` refuses it and every later step.
+A directive this SDK does not know is kept as its raw string and `runs()`
+is `false` for it: an unknown word from the governor is not a yes. A step
+that cannot be sent, or whose answer carries no directive, throws — never
+run the call on an exception.
+
+A malformed step throws `IllegalArgumentException` before any request:
+an unknown phase, a `call`/`result` without `callId` or `tool`, a
+`result` without `status`, a refusal without `refusedBy` (or a
+`refusedBy` on a call that was not refused), an `intent` without its
+text.
+
+### Behaviors and the conduct record
+
+Every answer lists the behaviors observed in the session so far —
+`tag`, `polarity`, `strength`, `source`, the `evidence` frames and the
+`calls` they concern. `tag` is the installed canon's own word, passed
+through unmapped; an unknown `polarity` is kept raw. `settled()` is
+`false` while reasoning over the step is still running; what it finds
+later arrives as `behavior.observed` webhooks and in the record:
+
+```java
+BehaviorPage page = cx.listBehaviors("subject:dv:agent-a",
+    "negative", null, null, null, 25, null);          // one page
+
+cx.iterBehaviors("subject:dv:agent-a")                 // lazy walk
+  .filter(b -> b.strength() > 0.5)
+  .forEach(b -> review(b.tag(), b.evidence()));
+```
+
+`listBehaviors` returns one page and does not follow `nextCursor()`;
+`iterBehaviors` fetches the next page only when the stream asks for it.
+There is no method that removes or amends a behavior — the record is
+corrected by correcting the soul, never by editing an entry.
+
 ## Exception hierarchy
 
 ```
-DMZAgentException                         base (RuntimeException)
+DMZAgentException                         base (RuntimeException); other statuses, incl. 404
   ├── DMZAgentAuthException               401
   ├── DMZAgentPermissionException         403
-  ├── DMZAgentValidationException         400
+  ├── DMZAgentValidationException         400 / 422
+  ├── DMZAgentConflictException           409 — idempotency key in flight, or approval settled
+  ├── DMZAgentRateLimitException          429 — retryAfter() when sent
   ├── DMZAgentServerException             5xx / network / timeout
   └── CircuitBreakerOpenException          guard(raiseOnOpen=true) + allow=false
 ```
+
+`getApproval` on an unknown id is `404`, which surfaces as the base
+`DMZAgentException`: the spec defers a dedicated not-found type.
 
 Every exception exposes `message`, `statusCode()`, and `body()`.
 `CircuitBreakerOpenException` additionally exposes `reason()`,
@@ -410,7 +525,7 @@ calls from a single `DMZAgentClient` instance.
 
 This SDK follows the language-agnostic spec at
 [dmzagent-sdk-spec](https://github.com/dmzagent/dmzagent-sdk-spec).
-A spec tag `v0.9.0` corresponds 1:1 to release tags in this and
+A spec tag `v0.11.0` corresponds 1:1 to release tags in this and
 every other DMZAgent SDK repo. No SDK ships a version the spec
 hasn't blessed.
 

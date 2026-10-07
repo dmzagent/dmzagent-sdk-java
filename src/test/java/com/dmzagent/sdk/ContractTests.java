@@ -42,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Contract test harness — drives the JSON corpus from the
  * {@code dmzagent-sdk-spec} repo against the Java SDK build.
  *
- * <p>Three corpora per {@code runner-spec.md}:
+ * <p>Four corpora per {@code runner-spec.md}:
  *
  * <ol>
  *   <li>{@code golden-envelopes.json} — serialization parity.
@@ -58,6 +58,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       The runner installs an interceptor that returns a fixed
  *       status + body, calls the SDK method, and asserts the
  *       canonical exception type matches.</li>
+ *   <li>{@code step-vectors.json} — agent mode (spec §1.9, §2.11).
+ *       The runner serves each fixture's scripted responses, calls
+ *       {@code agentStep}, and asserts the request and every listed
+ *       field of the {@link StepResult} — {@code runs} on every
+ *       vector, because the vectors that matter most are the ones
+ *       where it must be {@code false}.</li>
  * </ol>
  *
  * <p>Each corpus is run as JUnit 5 {@link DynamicTest}s so a failure
@@ -76,6 +82,12 @@ class ContractTests {
         new TypeReference<>() {};
     private static final TypeReference<List<Object>> LIST_TYPE =
         new TypeReference<>() {};
+
+    /** A minimal, readable answer to a step, for fixtures that assert only the request. */
+    private static final String STEP_ANSWER =
+        "{\"frame_id\":\"fr_0\",\"interaction_id\":\"sess_1\",\"directive\":\"proceed\","
+        + "\"scope\":null,\"reason\":\"\",\"approval_id\":null,\"settled\":true,"
+        + "\"behaviors\":[],\"anchor\":null,\"livemode\":false}";
 
     // ===================================================================== //
     // Locate the spec repo
@@ -211,6 +223,10 @@ class ContractTests {
             String name = (String) f.get("name");
             tests.add(DynamicTest.dynamicTest("envelope/" + name, () -> {
                 Capture cap = new Capture();
+                // A step answered without a directive raises (spec §1.9), so
+                // a step fixture is served a minimal readable answer. The
+                // fixture asserts the request; the answer is not under test.
+                if ("agent_step".equals(f.get("method"))) cap.okJson = STEP_ANSWER;
                 try (DMZAgentClient cx = new DMZAgentClient(
                         API_KEY, "http://contract.invalid", null, null,
                         cap.interceptor())) {
@@ -444,6 +460,167 @@ class ContractTests {
         return tests;
     }
 
+    // ===================================================================== //
+    // step-vectors.json
+    // ===================================================================== //
+
+    /**
+     * Serves scripted {@code (status, body)} responses in order and records
+     * every request. A request past the script is an {@link IOException},
+     * which the SDK surfaces as a server error — never as an answer.
+     */
+    private static final class Scripted implements Interceptor {
+        final List<Map<String, Object>> responses;
+        final List<Request> requests = new ArrayList<>();
+
+        Scripted(List<Map<String, Object>> responses) { this.responses = responses; }
+
+        @Override
+        public Response intercept(Chain chain) throws IOException {
+            Request req = chain.request();
+            requests.add(req);
+            if (requests.size() > responses.size()) {
+                throw new IOException("request " + requests.size()
+                    + " is past the fixture's " + responses.size() + " scripted response(s)");
+            }
+            Map<String, Object> r = responses.get(requests.size() - 1);
+            int status = ((Number) r.get("status")).intValue();
+            return new Response.Builder()
+                .request(req)
+                .protocol(Protocol.HTTP_1_1)
+                .code(status)
+                .message(status >= 400 ? "Error" : "OK")
+                .body(ResponseBody.create(
+                    MAPPER.writeValueAsString(r.get("body")),
+                    MediaType.get("application/json")))
+                .build();
+        }
+    }
+
+    @TestFactory
+    @SuppressWarnings("unchecked")
+    Iterable<DynamicTest> stepVectors() throws IOException {
+        Map<String, Object> corpus = loadCorpus("step-vectors.json");
+        List<DynamicTest> tests = new ArrayList<>();
+
+        List<Map<String, Object>> fixtures =
+            (List<Map<String, Object>>) corpus.getOrDefault("fixtures", List.of());
+        for (Map<String, Object> f : fixtures) {
+            String name = (String) f.get("name");
+            tests.add(DynamicTest.dynamicTest("step/" + name, () -> {
+                Map<String, Object> want =
+                    (Map<String, Object>) f.get("expected_result");
+                // runner-spec.md: runs MUST be asserted on every vector. A
+                // vector that forgot it would pass here without saying so.
+                assertThat(want)
+                    .as(name + ": the vector must assert runs")
+                    .containsKey("runs");
+
+                Scripted t = new Scripted(
+                    (List<Map<String, Object>>) f.get("responses"));
+                StepResult r;
+                try (DMZAgentClient cx = new DMZAgentClient(
+                        API_KEY, "http://contract.invalid", null, null, t)) {
+                    r = (StepResult) callMethod(cx, (String) f.get("method"),
+                        (Map<String, Object>) f.get("args"));
+                }
+
+                Map<String, Object> wantReq =
+                    (Map<String, Object>) f.get("expected_request");
+                assertThat(t.requests).hasSize(1);
+                assertThat(t.requests.get(0).method())
+                    .isEqualTo(wantReq.get("method"));
+                assertThat(t.requests.get(0).url().encodedPath())
+                    .isEqualTo(wantReq.get("path"));
+
+                for (Map.Entry<String, Object> e : want.entrySet()) {
+                    if ("behaviors".equals(e.getKey())) {
+                        List<Map<String, Object>> wantB =
+                            (List<Map<String, Object>>) e.getValue();
+                        assertThat(r.behaviors())
+                            .as(name + ": behaviors")
+                            .hasSize(wantB.size());
+                        for (int i = 0; i < wantB.size(); i++) {
+                            Behavior b = r.behaviors().get(i);
+                            for (Map.Entry<String, Object> be : wantB.get(i).entrySet()) {
+                                assertThat(behaviorField(b, be.getKey()))
+                                    .as(name + ": behaviors[" + i + "]." + be.getKey())
+                                    .isEqualTo(be.getValue());
+                            }
+                        }
+                    } else {
+                        assertThat(stepField(r, e.getKey()))
+                            .as(name + ": " + e.getKey())
+                            .isEqualTo(e.getValue());
+                    }
+                }
+            }));
+        }
+
+        List<Map<String, Object>> failures =
+            (List<Map<String, Object>>) corpus.getOrDefault("failures", List.of());
+        for (Map<String, Object> f : failures) {
+            String name = (String) f.get("name");
+            tests.add(DynamicTest.dynamicTest("step/" + name, () -> {
+                Scripted t = new Scripted(
+                    (List<Map<String, Object>>) f.get("responses"));
+                Class<? extends Throwable> expected =
+                    mapException((String) f.get("expected_exception"));
+                AtomicReference<Object> returned = new AtomicReference<>();
+                try (DMZAgentClient cx = new DMZAgentClient(
+                        API_KEY, "http://contract.invalid", null, null, t)) {
+                    assertThatThrownBy(() -> returned.set(callMethod(cx,
+                            (String) f.get("method"),
+                            (Map<String, Object>) f.get("args"))))
+                        .as(name)
+                        .isInstanceOf(expected);
+                }
+                assertThat(returned.get())
+                    .as(name + ": an unanswered step must not return a result")
+                    .isNull();
+            }));
+        }
+        return tests;
+    }
+
+    /** A {@link StepResult} field by its canonical wire name (spec §8.4). */
+    private static Object stepField(StepResult r, String key) {
+        return switch (key) {
+            case "frame_id"       -> r.frameId();
+            case "interaction_id" -> r.interactionId();
+            case "directive"      -> r.directive();
+            case "scope"          -> r.scope();
+            case "reason"         -> r.reason();
+            case "approval_id"    -> r.approvalId();
+            case "settled"        -> r.settled();
+            case "behaviors"      -> r.behaviors();
+            case "anchor"         -> r.anchor();
+            case "livemode"       -> r.livemode();
+            case "runs"           -> r.runs();
+            default -> throw new IllegalArgumentException(
+                "step vector names a StepResult field this runner does not map: " + key);
+        };
+    }
+
+    /** A {@link Behavior} field by its canonical wire name (spec §8.4). */
+    private static Object behaviorField(Behavior b, String key) {
+        return switch (key) {
+            case "tag"            -> b.tag();
+            case "polarity"       -> b.polarity();
+            case "strength"       -> b.strength();
+            case "source"         -> b.source();
+            case "evidence"       -> b.evidence();
+            case "calls"          -> b.calls();
+            case "behavior_id"    -> b.behaviorId();
+            case "subject_id"     -> b.subjectId();
+            case "interaction_id" -> b.interactionId();
+            case "observed_at"    -> b.observedAt();
+            case "anchor"         -> b.anchor();
+            default -> throw new IllegalArgumentException(
+                "step vector names a Behavior field this runner does not map: " + key);
+        };
+    }
+
     private static Class<? extends Throwable> mapException(String canonical) {
         return switch (canonical) {
             case "AuthError"       -> DMZAgentAuthException.class;
@@ -465,15 +642,15 @@ class ContractTests {
     // ===================================================================== //
 
     @SuppressWarnings("unchecked")
-    private static void callMethod(DMZAgentClient cx, String method,
-                                   Map<String, Object> args) {
+    private static Object callMethod(DMZAgentClient cx, String method,
+                                     Map<String, Object> args) {
         // subject_type is REQUIRED by spec §5.2-5.5. The runner used to call
         // the short overloads that omit it, which silently substitute
         // "sensor" — and every fixture happened to use "sensor", so the
         // substitution was invisible. Always pass the fixture's value
         // through the explicit overloads so the corpus actually controls it.
         String subjectType = (String) args.get("subject_type");
-        switch (method) {
+        return switch (method) {
             case "subject_says" -> cx.subjectSays(
                 (String) args.get("subject_id"),
                 (String) args.get("text"),
@@ -544,9 +721,39 @@ class ContractTests {
                 args.get("limit") instanceof Number n ? n.intValue() : null,
                 (String) args.get("cursor"));
 
+            // 0.11.0 — agent mode.
+            case "agent_step" -> cx.agentStep(
+                (String) args.get("agent_subject_id"),
+                (String) args.get("interaction_id"),
+                (String) args.get("phase"),
+                (String) args.get("call_id"),
+                (String) args.get("tool"),
+                (Map<String, Object>) args.get("args"),
+                (String) args.get("status"),
+                args.get("result"),
+                (String) args.get("refused_by"),
+                (String) args.get("reason"),
+                (String) args.get("attempt_of"),
+                (Map<String, Object>) args.get("intent"),
+                (String) args.get("occurred_at"),
+                (Map<String, Object>) args.get("metadata"),
+                (String) args.get("idempotency_key"));
+
+            case "list_behaviors" -> cx.listBehaviors(
+                (String) args.get("subject_id"),
+                (String) args.get("polarity"),
+                (String) args.get("interaction_id"),
+                (String) args.get("since"),
+                (String) args.get("until"),
+                args.get("limit") instanceof Number n ? n.intValue() : null,
+                (String) args.get("cursor"));
+
+            case "get_approval" -> cx.getApproval(
+                (String) args.get("approval_id"));
+
             default -> throw new IllegalArgumentException(
                 "unknown corpus method: " + method);
-        }
+        };
     }
 
     // ===================================================================== //
