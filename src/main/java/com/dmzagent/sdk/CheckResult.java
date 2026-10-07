@@ -9,13 +9,28 @@ import java.util.Map;
 /**
  * Return type of {@link DMZAgentClient#check}.
  *
- * <p>Per spec §7.2: {@code allow} is {@code false} only when
- * {@code state} is {@code "open"}. {@code warning} is {@code true}
- * when {@code state} is {@code "half_open"} — proceed but flag for
- * review.
+ * <p>Per spec §2.2, {@code state} is {@code closed}, {@code half_open},
+ * {@code hold} or {@code open}, and {@code allow} is {@code false} when it
+ * is {@code hold} or {@code open}. {@code hold} is a subject waiting on a
+ * person — a {@code require_approval} policy or an operator holds it — and
+ * {@code pendingApprovalId} names the approval when there is one.
+ * {@code warning} is {@code true} when {@code state} is {@code half_open}:
+ * proceed but flag for review.
+ *
+ * <p>{@code allow} is read from the wire, with one exception: a
+ * {@code state} this SDK does not know denies, whatever {@code allow} says
+ * (Appendix B). The raw state is kept in {@code state}.
+ *
+ * <p>Each {@code firedPolicies} entry is {@code {cb_policy_id, name, action}},
+ * where {@code action} is {@code allow}, {@code review}, {@code block} or
+ * {@code require_approval} — setting {@code closed}, {@code half_open},
+ * {@code open} or {@code hold}; the most restrictive wins. Entries are
+ * passed through as the server sent them.
  *
  * <p>{@code anchor} is {@code null} when no transition has been
- * anchored; when present it is a {@code {ledger_index, hash}} pair.
+ * anchored; when present it is a {@code {ledger_index, hash}} pair (the
+ * server also sends {@code ledger_event_id}, kept in the map and otherwise
+ * unused).
  *
  * <p>{@code cached}, {@code cacheAge} and {@code stale} describe how the
  * caller got this result (spec §4.4) and have no counterpart on the wire.
@@ -43,10 +58,10 @@ public record CheckResult(
     /**
      * The approval this denial is waiting on, or {@code null} (spec §2.2).
      *
-     * <p>Non-null only alongside {@code allow == false}. It is a field
-     * rather than a fourth breaker state so that code reading {@code allow}
-     * alone still refuses: a client that has never heard of approvals must
-     * not start allowing what it used to deny.
+     * <p>Non-null only alongside {@code allow == false}, normally with
+     * {@code state == "hold"}. Code reading {@code allow} alone still
+     * refuses: a client that has never heard of approvals must not start
+     * allowing what it used to deny.
      */
     @JsonProperty("pending_approval_id") String pendingApprovalId,
     Map<String, Object>               raw
@@ -62,6 +77,10 @@ public record CheckResult(
         return pendingApprovalId != null;
     }
 
+    /** The breaker states this SDK knows (spec §2.2). */
+    static final java.util.Set<String> KNOWN_STATES =
+        java.util.Set.of("closed", "half_open", "hold", "open");
+
     /** Build a CheckResult from a parsed server response. */
     @SuppressWarnings("unchecked")
     public static CheckResult fromResponse(Map<String, Object> data) {
@@ -74,9 +93,15 @@ public record CheckResult(
         Map<String, Object> anchor = anchorRaw instanceof Map<?, ?> m
             ? (Map<String, Object>) anchorRaw
             : null;
+        String state = (String) data.getOrDefault("state", "closed");
+        // An unknown state denies (Appendix B): the server may add a state,
+        // and a client that does not know what it means must not read the
+        // accompanying allow as permission.
+        boolean allow = KNOWN_STATES.contains(state)
+            && (Boolean) data.getOrDefault("allow", Boolean.TRUE);
         return new CheckResult(
-            (String) data.getOrDefault("state", "closed"),
-            ((Boolean) data.getOrDefault("allow", Boolean.TRUE)),
+            state,
+            allow,
             ((Boolean) data.getOrDefault("warning", Boolean.FALSE)),
             (String) data.getOrDefault("reason", ""),
             fired,
