@@ -121,6 +121,12 @@ if (!r.allow()) {
 }
 ```
 
+`state()` is `closed`, `half_open` (allowed, `warning()` set), `hold`
+(waiting on a person — see approvals below) or `open`; `allow()` is
+`false` for `hold` and `open`. Branch on `allow()`. A state this SDK does
+not know is read as a deny. Each `firedPolicies()` entry carries the
+policy's `action`: `allow`, `review`, `block` or `require_approval`.
+
 ### try-with-resources `Guard`
 
 For control-flow seams that mirror try/catch on authorization failure:
@@ -251,7 +257,7 @@ but invisible.
 
 A circuit-breaker policy can fire with action `require_approval`, which
 **holds** the action instead of refusing it. `check()` then hands back a
-denial that names what it is waiting on:
+denial — `state()` is `hold` — that names what it is waiting on:
 
 ```java
 CheckResult g = cx.check("subject:dv:checkout-bot");

@@ -199,7 +199,7 @@ class ApprovalsAndLedgerTest {
         @Test
         void awaitingApprovalWhenTheServerNamesOne() {
             Map<String, Object> d = new LinkedHashMap<>();
-            d.put("state", "open");
+            d.put("state", "hold");
             d.put("allow", false);
             d.put("warning", false);
             d.put("reason", "refund above the reviewed ceiling");
@@ -208,6 +208,47 @@ class ApprovalsAndLedgerTest {
             assertFalse(r.allow());
             assertTrue(r.awaitingApproval());
             assertEquals("apr_7f3c9a1b", r.pendingApprovalId());
+        }
+
+        @Test
+        @DisplayName("hold is a known state that denies, read from the wire (§2.2)")
+        void holdDenies() {
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("state", "hold");
+            d.put("allow", false);
+            d.put("fired_policies", List.of(Map.of(
+                "cb_policy_id", "cbp_11", "name", "refund ceiling",
+                "action", "require_approval")));
+            d.put("anchor", Map.of("ledger_index", 40197, "hash", "b1c4",
+                                   "ledger_event_id", "le_9"));
+            CheckResult r = CheckResult.fromResponse(d);
+            assertEquals("hold", r.state());
+            assertFalse(r.allow());
+            assertEquals("require_approval", r.firedPolicies().get(0).get("action"));
+            assertEquals(40197, r.anchor().get("ledger_index"),
+                "an anchor carrying ledger_event_id still parses");
+        }
+
+        @Test
+        @DisplayName("an unknown state denies, whatever allow says (Appendix B)")
+        void anUnknownStateDenies() {
+            for (String state : new String[] { "quarantine", "HOLD", "" }) {
+                CheckResult r = CheckResult.fromResponse(
+                    Map.of("state", state, "allow", true, "warning", false));
+                assertEquals(state, r.state(), "the raw state is kept");
+                assertFalse(r.allow(), "unknown state must deny: " + state);
+            }
+        }
+
+        @Test
+        @DisplayName("a known state's allow is read from the wire, not derived")
+        void knownStatesReadAllowFromTheWire() {
+            for (String state : new String[] { "closed", "half_open" }) {
+                assertTrue(CheckResult.fromResponse(
+                    Map.of("state", state, "allow", true)).allow(), state);
+                assertFalse(CheckResult.fromResponse(
+                    Map.of("state", state, "allow", false)).allow(), state);
+            }
         }
 
         @Test
